@@ -5,6 +5,20 @@ import config
 import scan_image
 from datetime import datetime, timedelta
 import os
+import os, shutil
+import pytesseract
+
+candidates = [
+    os.environ.get("TESSERACT_CMD"),
+    shutil.which("tesseract"),
+    "/opt/homebrew/bin/tesseract",  # mac Apple Silicon
+    "/usr/local/bin/tesseract",     # mac Intel
+    "/usr/bin/tesseract",           # linux sometimes
+]
+for c in candidates:
+    if c and os.path.exists(c):
+        pytesseract.pytesseract.tesseract_cmd = c
+        break
 
 def connect_db():
     """Create and return a PostgreSQL database connection"""
