@@ -57,8 +57,10 @@ logging.getLogger("httpcore").setLevel(logging.INFO)
 user_pages = {}
 
 # Conversation states
-EMAIL, CODE_VERIFICATION, PHONE, CASH_NUMBER = range(4)
-WITHDRAW_AMOUNT, CARRIER_SELECTION, UPDATE_CASH, SUPPORT_MESSAGE = range(4, 8)
+EMAIL, CODE_VERIFICATION, PHONE, CASH_NUMBER, FB_USERNAME, IG_USERNAME = range(6)
+WITHDRAW_AMOUNT, CARRIER_SELECTION, UPDATE_CASH, SUPPORT_MESSAGE = range(6, 10)
+
+
 
 # Global connection pools
 db_pool = None
@@ -67,21 +69,13 @@ test2_db_pool = None
 # Context managers for pooled database connections
 @contextmanager
 def get_db_connection():
-    """Get a connection from the main database pool."""
+    """Main DB (DATABASE_URL)"""
     conn = db_pool.getconn()
     try:
         yield conn
     finally:
         db_pool.putconn(conn)
 
-@contextmanager
-def get_db_connection():
-    """Get a connection from the Test2 database pool."""
-    conn = test2_db_pool.getconn()
-    try:
-        yield conn
-    finally:
-        test2_db_pool.putconn(conn)
 
 ### Database Functions
 
@@ -354,8 +348,22 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             msg = "تم إلغاء وصولك 🚫 " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
             await update.message.reply_text(msg)
             return ConversationHandler.END
-
+            
+        
         if user_exists(user_id):
+            if not is_verified_user(user_id):
+                wait = (
+                    "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+                    "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+                    "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+                    if user_lang.startswith("ar")
+                    else
+                    "⏳ Your account is pending activation.\n"
+                    "📌 It will be activated as soon as possible.\n"
+                    "✅ Please come back later and press (View Links) after activation."
+                )
+                await update.message.reply_text(wait)
+                return ConversationHandler.END
             msg = "لا حاجة لإعادة التسجيل أنت مسجل بالفعل ✅ " if user_lang.startswith('ar') else "You're already registered! ✅"
             await update.message.reply_text(msg)
             return ConversationHandler.END
@@ -509,83 +517,296 @@ async def prompt_cash_number(update: Update, context: ContextTypes.DEFAULT_TYPE,
         logger.error(f"Error prompting cash number: {e}")
 
 async def process_cash_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process the user's cash number and complete registration."""
-    try:
-        user_lang = update.effective_user.language_code or 'en'
-        cash_number = update.message.text.strip()
+    """
+    Process the user's cash number, then continue registration by asking for Facebook username.
+    NOTE: We do NOT insert into DB here anymore. The DB insert happens after collecting FB + IG.
+    """
+    user_lang = update.effective_user.language_code or "en"
 
+    try:
+        cash_number = (update.message.text or "").strip()
+
+        # Cancel
         if cash_number in ["Cancel ❌", "إلغاء ❌"]:
             await cancel_registration(update, context)
             return ConversationHandler.END
 
+        # Skip
         if cash_number in ["Skip", "تخطي"]:
             cash_number = None
-        elif not cash_number.isdigit():
-            error_msg = "❌ يرجى إدخال أرقام فقط" if user_lang.startswith('ar') else "❌ Please enter digits only"
-            await update.message.reply_text(error_msg)
-            return CASH_NUMBER
+        else:
+            # Validate digits only
+            if not cash_number.isdigit():
+                error_msg = (
+                    "❌ يرجى إدخال أرقام فقط"
+                    if user_lang.startswith("ar")
+                    else "❌ Please enter digits only"
+                )
+                await update.message.reply_text(error_msg)
+                return CASH_NUMBER
 
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        INSERT INTO users 
-                            (telegram_id, full_name, email, phone, country, registration_date, cash_number)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        # Store temporarily in conversation context (final DB insert happens later)
+        context.user_data["cash_number"] = cash_number
+
+        # Ask for Facebook username next
+        msg = (
+            "✅ الآن أدخل اسم حسابك على فيس بوك (username أو رابط الحساب):"
+            if user_lang.startswith("ar")
+            else "✅ Now enter your Facebook username (or profile URL):"
+        )
+        keyboard = [["إلغاء ❌"]] if user_lang.startswith("ar") else [["Cancel ❌"]]
+        await update.message.reply_text(
+            msg,
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        )
+        return FB_USERNAME  # <-- make sure FB_USERNAME state exists in your states
+
+    except Exception as e:
+        logger.error(f"Cash number error: {e}")
+        error_msg = (
+            "⚠️ خطأ في معالجة البيانات"
+            if user_lang.startswith("ar")
+            else "⚠️ Error processing data"
+        )
+        await update.message.reply_text(error_msg)
+        return CASH_NUMBER
+
+
+
+
+
+
+
+
+def _clean_social(text: str) -> str:
+    t = (text or "").strip()
+    if t.startswith("@"):
+        t = t[1:]
+    return t
+
+async def process_facebook_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_lang = update.effective_user.language_code or "en"
+    txt = update.message.text.strip()
+
+    if txt in ["Cancel ❌", "إلغاء ❌"]:
+        await cancel_registration(update, context)
+        return ConversationHandler.END
+
+    fb = _clean_social(txt)
+    if len(fb) < 3:
+        msg = "❌ اسم فيس بوك قصير جداً. أدخل اسم صحيح." if user_lang.startswith("ar") else "❌ Facebook username too short."
+        await update.message.reply_text(msg)
+        return FB_USERNAME
+
+    context.user_data["facebook_username"] = fb
+    msg = "✅ الآن أدخل اسم حسابك على إنستغرام (username):" if user_lang.startswith('ar') else "✅ Now enter your Instagram username:"
+    await update.message.reply_text(msg)
+    return IG_USERNAME
+
+
+def _clean_instagram_username(text: str) -> str:
+    t = (text or "").strip()
+
+    # ممنوع روابط
+    if "http" in t.lower() or "/" in t:
+        return ""
+
+    # إزالة @ إن وجدت
+    if t.startswith("@"):
+        t = t[1:]
+
+    # إزالة المسافات
+    t = t.replace(" ", "")
+
+    # توحيد للحروف الصغيرة (أفضل لمنع التكرار)
+    return t.lower()
+
+async def process_instagram_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_lang = update.effective_user.language_code or "en"
+    txt = (update.message.text or "").strip()
+
+    if txt in ["Cancel ❌", "إلغاء ❌"]:
+        await cancel_registration(update, context)
+        return ConversationHandler.END
+
+    ig = _clean_instagram_username(txt)
+
+    # Instagram username: 3-30, أحرف/أرقام/نقطة/underscore فقط
+    if not ig or not re.match(r"^[a-z0-9._]{3,30}$", ig):
+        msg = (
+            "❌ اسم إنستغرام غير صالح.\n"
+            "✅ اكتب الـ Username فقط بدون رابط وبدون مسافات.\n"
+            "مثال: my.user_123"
+            if user_lang.startswith("ar")
+            else
+            "❌ Invalid Instagram username.\n"
+            "✅ Enter username only (no URL, no spaces).\n"
+            "Example: my.user_123"
+        )
+        await update.message.reply_text(msg)
+        return IG_USERNAME
+
+    # فحص مبكر لمنع التكرار برسالة واضحة
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM users
+                    WHERE LOWER(instagram_username) = LOWER(%s)
+                      AND telegram_id <> %s
+                    LIMIT 1
+                    """,
+                    (ig, update.effective_user.id),
+                )
+                if cur.fetchone():
+                    msg = (
+                        "❌ هذا اسم الإنستغرام مستخدم بالفعل من حساب آخر.\n"
+                        "✅ الرجاء إدخال اسم مختلف."
+                        if user_lang.startswith("ar")
+                        else
+                        "❌ This Instagram username is already used by another account.\n"
+                        "✅ Please enter a different one."
+                    )
+                    await update.message.reply_text(msg)
+                    return IG_USERNAME
+
+        context.user_data["instagram_username"] = ig
+
+        # حفظ نهائي (مع حماية تعارض Unique)
+        with get_db_connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO users
+                            (telegram_id, full_name, email, phone, country, registration_date, cash_number,
+                             facebook_username, instagram_username, is_verified)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)
+                        ON CONFLICT (telegram_id) DO UPDATE SET
+                            full_name = EXCLUDED.full_name,
+                            email = EXCLUDED.email,
+                            phone = EXCLUDED.phone,
+                            country = EXCLUDED.country,
+                            cash_number = EXCLUDED.cash_number,
+                            facebook_username = EXCLUDED.facebook_username,
+                            instagram_username = EXCLUDED.instagram_username
                     """, (
                         update.effective_user.id,
                         update.effective_user.name,
-                        context.user_data['email'],
-                        context.user_data['phone'],
-                        context.user_data['country'],
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        cash_number
+                        context.user_data.get("email"),
+                        context.user_data.get("phone"),
+                        context.user_data.get("country"),
+                        datetime.now(),
+                        context.user_data.get("cash_number"),
+                        context.user_data.get("facebook_username"),
+                        ig,
                     ))
-                    conn.commit()
-        except psycopg2.IntegrityError:
-            msg = "أنت مسجل بالفعل! ✅" if user_lang.startswith('ar') else "✅ You're already registered!"
-            await update.message.reply_text(msg)
-            return ConversationHandler.END
 
-        display_cash = cash_number if cash_number else "N/A"
-        success_msg = (
-            f"✅ تم إكمال التسجيل بنجاح :\n"
-            f"👤 أسمك : {escape_markdown(update.effective_user.name)}\n"
-            f"📧 بريدك الإلكتروني : {escape_markdown_2(context.user_data['email'])}\n"
-            f"📱 رقم هاتفك : {escape_markdown_2(context.user_data['phone'])}\n"
-            f"💳 رقم الكاش: {display_cash}\n"
-            f"🌍 بلدك : {escape_markdown(context.user_data['country'])}\n"
-            f"⭐ تاريخ التسجيل : {escape_markdown(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}"
-            if user_lang.startswith('ar')
-            else
-            f"✅ Registration Complete:\n"
-            f"👤 Name: {escape_markdown(update.effective_user.name)}\n"
-            f"📧 Email: {escape_markdown_2(context.user_data['email'])}\n"
-            f"📱 Phone: {escape_markdown_2(context.user_data['phone'])}\n"
-            f"💳 Cash number: {display_cash}\n"
-            f"🌍 Country: {escape_markdown(context.user_data['country'])}\n"
-            f"⭐ Registration Date: {escape_markdown(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}"
-        )
-        await update.message.reply_text(success_msg, reply_markup=ReplyKeyboardRemove())
-        await show_menu(update, context)
-        return ConversationHandler.END
+                    cur.execute("""
+                        INSERT INTO user_verification_requests
+                            (telegram_id, full_name, email, phone, country, facebook_username, instagram_username, locked)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
+                        ON CONFLICT (telegram_id) DO UPDATE SET
+                            full_name = EXCLUDED.full_name,
+                            email = EXCLUDED.email,
+                            phone = EXCLUDED.phone,
+                            country = EXCLUDED.country,
+                            facebook_username = EXCLUDED.facebook_username,
+                            instagram_username = EXCLUDED.instagram_username,
+                            locked = FALSE
+                    """, (
+                        update.effective_user.id,
+                        update.effective_user.name,
+                        context.user_data.get("email"),
+                        context.user_data.get("phone"),
+                        context.user_data.get("country"),
+                        context.user_data.get("facebook_username"),
+                        ig,
+                    ))
+
+                conn.commit()
+
+            except psycopg2.IntegrityError as e:
+                conn.rollback()
+                if getattr(e, "pgcode", None) == "23505":
+                    msg = (
+                        "❌ هذا اسم الإنستغرام مستخدم بالفعل من حساب آخر.\n"
+                        "✅ الرجاء إدخال اسم مختلف."
+                        if user_lang.startswith("ar")
+                        else
+                        "❌ This Instagram username is already used by another account.\n"
+                        "✅ Please enter a different one."
+                    )
+                    await update.message.reply_text(msg)
+                    return IG_USERNAME
+                raise
+
     except Exception as e:
-        logger.error(f"Cash number error: {e}")
-        error_msg = "⚠️ خطأ في معالجة البيانات" if user_lang.startswith('ar') else "⚠️ Error processing data"
-        await update.message.reply_text(error_msg)
-        return CASH_NUMBER
+        logger.error(f"Registration finalize error: {e}")
+        msg = "⚠️ حدث خطأ أثناء التسجيل، حاول لاحقاً." if user_lang.startswith("ar") else "⚠️ Registration error, try later."
+        await update.message.reply_text(msg)
+        return ConversationHandler.END
+
+    waiting_msg = (
+        "✅ تم استلام بياناتك بنجاح.\n"
+        "⏳ حسابك الآن قيد التفعيل من فريق المراجعة.\n"
+        "🔒 لن تتمكن من رؤية المهام إلا بعد التأكد من أن حساباتك حقيقية."
+        if user_lang.startswith("ar")
+        else
+        "✅ Your data has been received.\n"
+        "⏳ Your account is now pending activation by our review team.\n"
+        "🔒 You won't be able to view tasks until your accounts are verified as real."
+    )
+    await update.message.reply_text(waiting_msg, reply_markup=ReplyKeyboardRemove())
+    await show_menu(update, context)
+    return ConversationHandler.END
+
+
+
+def is_verified_user(telegram_id: int) -> bool:
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT is_verified FROM users WHERE telegram_id=%s", (telegram_id,))
+                row = cur.fetchone()
+                return bool(row and row[0])
+    except Exception as e:
+        logger.error(f"is_verified_user error: {e}")
+        return False
+
+
+
+
+
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display the user's profile."""
     try:
         user_lang = update.effective_user.language_code or 'en'
         user_id = update.effective_user.id
-
+        if not user_exists(user_id):
+            msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
+        # if msg:
+            await update.message.reply_text(msg)
+            return
         if await is_banned(user_id):
             msg = "تم إلغاء وصولك 🚫 " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
             await update.message.reply_text(msg)
             return
-
+        if not is_verified_user(user_id):
+            wait = (
+                "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+                "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+                "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+                if user_lang.startswith("ar")
+                else
+                "⏳ Your account is pending activation.\n"
+                "📌 It will be activated as soon as possible.\n"
+                "✅ Please come back later and press (View Links) after activation."
+            )
+            await update.message.reply_text(wait)
+            return
         profile = get_profile(user_id)
         if profile:
             _, name, email, phone, country, reg_date, points, cash_number, block_num, total_withdrawals, res_name = profile
@@ -677,6 +898,19 @@ async def view_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
         if msg:
             await update.message.reply_text(msg)
+            return
+        if not is_verified_user(user_id):
+            wait = (
+                "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+                "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+                "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+                if user_lang.startswith("ar")
+                else
+                "⏳ Your account is pending activation.\n"
+                "📌 It will be activated as soon as possible.\n"
+                "✅ Please come back later and press (View Links) after activation."
+            )
+            await update.message.reply_text(wait)
             return
 
         user_pages[user_id] = 0
@@ -834,6 +1068,20 @@ async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_T
         if msg:
             await context.bot.send_message(chat_id=query.message.chat_id, text=msg)
             return
+        
+        if not is_verified_user(user_id):
+            wait = (
+                "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+                "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+                "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+                if user_lang.startswith("ar")
+                else
+                "⏳ Your account is pending activation.\n"
+                "📌 It will be activated as soon as possible.\n"
+                "✅ Please come back later and press (View Links) after activation."
+            )
+            await update.message.reply_text(wait)
+            return
 
         chat_id = query.message.chat_id
         link_id = int(query.data.split("_")[1])
@@ -912,9 +1160,32 @@ async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         msg = "تم إلغاء وصولك 🚫" if user_lang.startswith('ar') else "🚫 Your access has been revoked"
     if not user_exists(user_id):
         msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌" if user_lang.startswith('ar') else "❌ Please register first"
+    if not is_verified_user(user_id):
+        msg = (
+            "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+            "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+            "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+            if user_lang.startswith("ar")
+            else
+            "⏳ Your account is pending activation.\n"
+            "📌 It will be activated as soon as possible.\n"
+            "✅ Please come back later and press (View Links) after activation."
+        )
     if msg:
         await context.bot.send_message(chat_id=chat_id, text=msg)
         return
+    
+    if not is_verified_user(user_id):
+        msg = (
+            "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+            "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+            "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+            if user_lang.startswith("ar")
+            else
+            "⏳ Your account is pending activation.\n"
+            "📌 It will be activated as soon as possible.\n"
+            "✅ Please come back later and press (View Links) after activation."
+        )
 
     try:
         link_id = int(query.data.split('_')[1])
@@ -1216,7 +1487,21 @@ async def start_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if msg:
         await update.message.reply_text(msg)
         return ConversationHandler.END
-
+    
+    if not is_verified_user(user_id):
+        wait = (
+            "⏳ حسابك قيد التفعيل من فريق المراجعة.\n"
+            "📌 سيتم تفعيل حسابك بأسرع وقت ممكن.\n"
+            "✅ يمكنك العودة لاحقاً والضغط (عرض المهام) بعد التفعيل."
+            if user_lang.startswith("ar")
+            else
+            "⏳ Your account is pending activation.\n"
+            "📌 It will be activated as soon as possible.\n"
+            "✅ Please come back later and press (View Links) after activation."
+        )
+        await update.message.reply_text(wait)
+        return ConversationHandler.END
+    
     points = get_user_points(user_id)
     if points < 100:
         msg = "⚠️ تحتاج إلى 100 نقطة على الأقل لسحب الأرباح" if user_lang.startswith('ar') else "⚠️ You need at least 100 points to withdraw."
@@ -1574,6 +1859,14 @@ def main() -> None:
             CASH_NUMBER: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_cash_number),
                 CommandHandler('cancel', cancel_registration)
+            ],
+            FB_USERNAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_facebook_username),
+                MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_registration),
+            ],
+            IG_USERNAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, process_instagram_username),
+                MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_registration),
             ]
         },
         fallbacks=[

@@ -21,3 +21,7 @@ DATABASE_CONFIG = "postgresql://postgres:postgres@localhost:5432/Test2"
 
 
 BOT_TOKEN = "7555220650:AAEHsC6R0HM44dQ7-1uv_xsfGcYc-KWCWy4"
+
+
+
+VERIFY_BOT_TOKEN = "8506009760:AAGmNjlNM5mRdROIrQuVzCsA6gDqBIJVae8"
