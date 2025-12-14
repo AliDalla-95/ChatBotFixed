@@ -1,43 +1,23 @@
-# Minimal requirements for the exact set of files in your Archive.zip:
-# - bot_finall_update.py
-# - client_admin_paid.py
-# - client_test_pay.py
-# - send_mony.py
-# - youtube_chanel.py
-# - ocr.py / ocr_processor.py
-# - image_processing.py / scan_image.py / pillow_comparing.py / database.py / try.py
+# Runtime requirements for the Telegram bots in this repository.
+# (After removing screenshot/OCR processing pipeline)
 #
-# Install:
-#   pip install -r requirements.min.my_runfiles.txt
+# Main entrypoints typically used:
+# - bot_user.py
+# - support.py
+# Other scripts in this repo may also be used (client.py, send_mony.py, client_paid.py, youtube_chanel.py).
 
-# Telegram bots (uses ApplicationBuilder/ContextTypes)
+# Telegram bots (ApplicationBuilder/ContextTypes)
 python-telegram-bot>=20
 
 # Database
 psycopg2-binary
 
-# HTTP + file watching
-requests
-watchdog
-
-# Phone parsing (used in bot_finall_update.py + client_test_pay.py)
+# Phone parsing (used by bot_user.py / client.py)
 phonenumbers
 
-# Google API client (used in client_test_pay.py + youtube_chanel.py)
+# Google API client (used by client.py / youtube_chanel.py)
 google-api-python-client
 cachetools
 
-# System/process utilities (used in client_test_pay.py)
+# System/process utilities (used by client.py)
 psutil
-
-# OCR + image processing (used in image_processing.py / ocr.py)
-pytesseract
-Pillow
-opencv-python
-numpy
-
-# NLP (used in scan_image.py)
-spacy
-
-# PDF -> images (used in ocr.py)
-pdf2image

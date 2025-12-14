@@ -54,6 +54,7 @@ logging.getLogger("httpx").setLevel(logging.INFO)
 logging.getLogger("httpcore").setLevel(logging.INFO)
 
 # Global dictionaries for state management (thread-safe due to user_id keys)
+pending_submissions = {}  # Format: {user_id: {link_id, chat_id, message_id, description}}
 user_pages = {}
 
 # Conversation states
@@ -75,7 +76,7 @@ def get_db_connection():
         db_pool.putconn(conn)
 
 @contextmanager
-def get_db_connection():
+def get_test2_db_connection():
     """Get a connection from the Test2 database pool."""
     conn = test2_db_pool.getconn()
     try:
@@ -162,7 +163,7 @@ def get_allowed_links(telegram_id: int) -> list:
                     SELECT l.id, l.youtube_link, l.description, l.adder, l.channel_id
                     FROM links l
                     LEFT JOIN user_link_status uls 
-                        ON l.id = uls.link_id AND uls.telegram_id = %s
+                        ON l.channel_id = uls.channel_id AND uls.telegram_id = %s
                     WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s
                     ORDER BY l.id DESC
                 """
@@ -633,8 +634,22 @@ def get_profile(telegram_id: int) -> tuple:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
-                # نقاط المهمات أصبحت تُضاف فوراً من بوت الدعم (support.py) بعد الموافقة.
-                # لذلك لا نقوم بإضافة نقاط تلقائياً هنا.
+                cursor.execute(
+                    "SELECT COUNT(*) FROM user_link_status WHERE date_mation < CURRENT_TIMESTAMP - INTERVAL '3 days' AND telegram_id = %s AND points_status = %s",
+                    (telegram_id, False)
+                )
+                user_date_data = cursor.fetchone()
+                points = user_date_data[0] if user_date_data else 0
+                if points:
+                    cursor.execute("""
+                        UPDATE user_link_status 
+                        SET points_status = %s
+                        WHERE date_mation < CURRENT_TIMESTAMP - INTERVAL '3 days'
+                        AND telegram_id = %s
+                        AND points_status = %s
+                    """, (True, telegram_id, False))
+                    update_user_points(telegram_id, points)
+                    conn.commit()
 
                 cursor.execute(
                     "SELECT telegram_id, full_name, email, phone, country, registration_date, points, cash_number, block_num FROM users WHERE telegram_id = %s",
@@ -709,8 +724,8 @@ async def send_links_page(user_lang: str, chat_id: int, user_id: int, page: int,
                 f"[🔗 YouTube Link]({yt_link})"
             )
             keyboard = [[InlineKeyboardButton(
-                "✅ اشترك ثم اضغط: أنجزت المهمة" if user_lang.startswith('ar')
-                else "✅ Subscribe then press: Done",
+                "تنفيذ المهمة وبعد الانتهاء تحميل لقطة الشاشة لتأكيدها مبدئيا 📸" if user_lang.startswith('ar')
+                else "📸 Accept And Subscribed And Then Submit Screenshot",
                 callback_data=f"submit_{link_id}"
             )]]
             message = await context.bot.send_message(
@@ -816,14 +831,16 @@ async def navigate_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 ### Image Submission
 
 async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle task start: ask user to subscribe and then press Done."""
+    """Handle image submission requests."""
     try:
         user_lang = update.effective_user.language_code or 'en'
         query = update.callback_query
         await query.answer()
 
-        user_id = query.from_user.id
 
+        user_id = query.from_user.id
+        
+        
         msg = ""
         if await block_check(update, context):
             return
@@ -832,7 +849,7 @@ async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_T
         if not user_exists(user_id):
             msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
         if msg:
-            await context.bot.send_message(chat_id=query.message.chat_id, text=msg)
+            await update.message.reply_text(msg)
             return
 
         chat_id = query.message.chat_id
@@ -841,46 +858,41 @@ async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         if not message_id:
             msg = "⚠️ تم تعطيل الجلسة يرجى تحديث قائمة المهام" if user_lang.startswith('ar') else "⚠️ Session expired. Please reload links."
-            await context.bot.send_message(chat_id=chat_id, text=msg)
+            await query.message.reply_text(msg)
             return
 
         allowed_links = get_allowed_links(user_id)
         if not any(link[0] == link_id for link in allowed_links):
             msg = "⚠️ هذه المهمة لم تعد متاحة لك" if user_lang.startswith('ar') else "⚠️ This link is no longer available."
-            await context.bot.send_message(chat_id=chat_id, text=msg)
+            await query.message.reply_text(msg)
             return
 
         description = get_link_description(link_id)
         if not description:
             msg = "❌ خطأ في تفاصيل المهمة قم بتحديث المهمات" if user_lang.startswith('ar') else "❌ Link details missing"
-            await context.bot.send_message(chat_id=chat_id, text=msg)
+            await query.message.reply_text(msg)
             return
 
-        # Ask for subscription confirmation (no screenshot required)
-        text = (
-            f"✅ اشترك في القناة/الحساب الخاص بالمهمة ثم اضغط زر (أنجزت المهمة) هنا:\n{description}"
-            if user_lang.startswith('ar')
-            else f"✅ Subscribe to the channel/account for this task, then press (Done) here:\n{description}"
-        )
-        done_button = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ أنجزت المهمة" if user_lang.startswith('ar') else "✅ Done", callback_data=f"done_{link_id}")
-        ]])
 
-        prompt_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_to_message_id=message_id,
-            reply_markup=done_button
+
+        text = f"📸 خذ لقطة الشاشة للقناة وأرسلها هنا : {description}" if user_lang.startswith('ar') else f"📸 Submit image for: {description}"
+        text1 = f"يرجى تحميل لقطات الشاشة فقط. لايستجيب البوت سوى للقطات الشاشة" if user_lang.startswith('ar') else f"Please upload screenshots only. The bot only responds to screenshots."
+        text_msg = await context.bot.send_message(
+            chat_id=chat_id, 
+            text=text, 
+            reply_to_message_id=message_id
         )
+        text1_msg = await query.message.reply_text(text1)
+
+
+        pending_submissions[user_id] = {'link_id': link_id, 'chat_id': chat_id, 'message_id': message_id, 'description': description,'text_msg_id': text_msg.message_id,'text1_msg_id': text1_msg.message_id}
+        # await context.bot.send_message(chat_id=chat_id, text=text, reply_to_message_id=message_id)
+        # await query.message.reply_text(text1)
 
     except Exception as e:
         logger.error(f"Submit error: {e}")
-        user_lang = update.effective_user.language_code or 'en'
         msg = "❌ خطأ في تفاصيل المهمة قم بتحديث المهمات" if user_lang.startswith('ar') else "❌ Link details missing"
-        try:
-            await update.callback_query.message.reply_text(msg)
-        except Exception:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+        await query.message.reply_text(msg)
 
 def get_link_description(link_id: int) -> str:
     """Get the description for a specific link."""
@@ -894,179 +906,78 @@ def get_link_description(link_id: int) -> str:
         logger.error(f"Error in get_link_description: {e}")
         return None
 
-
-async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """User pressed Done: store submission for manual review (support bot) without image processing."""
-    query = update.callback_query
-    await query.answer()
-    user_lang = query.from_user.language_code or 'en'
-    user_id = query.from_user.id
-    user_name = query.from_user.name
-    chat_id = query.message.chat_id
-
-    # Basic checks
-    msg = ""
-    if await block_check(update, context):
-        return
-    if await is_banned(user_id):
-        msg = "تم إلغاء وصولك 🚫" if user_lang.startswith('ar') else "🚫 Your access has been revoked"
-    if not user_exists(user_id):
-        msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌" if user_lang.startswith('ar') else "❌ Please register first"
-    if msg:
-        await context.bot.send_message(chat_id=chat_id, text=msg)
-        return
-
+async def process_image_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle image upload and verification."""
     try:
-        link_id = int(query.data.split('_')[1])
-    except Exception:
-        err = "⚠️ طلب غير صالح" if user_lang.startswith('ar') else "⚠️ Invalid request"
-        await context.bot.send_message(chat_id=chat_id, text=err)
-        return
+        user_lang = update.effective_user.language_code or 'en'
+        user_id = update.effective_user.id
+        user_name = update.effective_user.name
+        chat_id = update.effective_chat.id
 
-    # Retrieve original task message (best effort) and link details from DB
-    message_id = get_message_id(user_id, chat_id, link_id)
-    description = None
-    res = None
+        if user_id not in pending_submissions:
+            msg = "❌ خطأ يرجى تحديث المهمات من جديد" if user_lang.startswith('ar') else "❌ No active submission!"
+            await update.message.reply_text(msg)
+            return
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                # Prevent duplicate submissions for the same task
-                cursor.execute(
-                    "SELECT processed, points_status FROM user_link_status WHERE telegram_id = %s AND link_id = %s",
-                    (user_id, link_id)
-                )
-                status_row = cursor.fetchone()
-                if status_row:
-                    processed, points_status = status_row[0], status_row[1]
-                    if points_status:
-                        already = "✅ تم احتساب نقاط هذه المهمة مسبقاً." if user_lang.startswith('ar') else "✅ This task has already been credited."
-                        await context.bot.send_message(chat_id=chat_id, text=already)
-                        return
-                    if processed == 1:
-                        pending = (
-                            "⏳ لقد أرسلت هذه المهمة مسبقاً وهي قيد المراجعة من الدعم."
-                            if user_lang.startswith('ar')
-                            else "⏳ You have already submitted this task and it is pending support review."
-                        )
-                        await context.bot.send_message(chat_id=chat_id, text=pending)
-                        return
+        submission = pending_submissions[user_id]
+        link_id = submission['link_id']
+        message_id = submission['message_id']
+        description = submission['description']
 
-                # Fetch task details + reserve slot (if you use allow_link as quota)
-                cursor.execute("SELECT description, channel_id, allow_link FROM links WHERE id = %s", (link_id,))
-                row = cursor.fetchone()
-                if not row:
-                    raise ValueError("Missing link details")
-                description, res, allow_left = row[0], row[1], row[2]
-                if res is None:
-                    raise ValueError("Missing channel_id for link")
-                if allow_left is not None and allow_left <= 0:
-                    no_slots = (
-                        "⚠️ لا توجد أماكن متاحة لهذه المهمة حالياً. جرّب مهمة أخرى."
-                        if user_lang.startswith('ar')
-                        else "⚠️ No slots are available for this task right now. Try another task."
-                    )
-                    await context.bot.send_message(chat_id=chat_id, text=no_slots)
-                    return
+        os.makedirs("image_process", exist_ok=True)
+        filename = f"user_{user_id}_link_{link_id}_{uuid.uuid4().hex}.jpg"
+        image_path = os.path.join("image_process", filename)
 
-                # Reserve a slot for this task (keeps previous quota behavior)
-                if allow_left is not None:
-                    cursor.execute(
-                        "UPDATE links SET allow_link = allow_link - 1 WHERE id = %s AND allow_link > 0",
-                        (link_id,)
-                    )
-                    if cursor.rowcount == 0:
-                        no_slots = (
-                            "⚠️ لا توجد أماكن متاحة لهذه المهمة حالياً. جرّب مهمة أخرى."
-                            if user_lang.startswith('ar')
-                            else "⚠️ No slots are available for this task right now. Try another task."
-                        )
-                        await context.bot.send_message(chat_id=chat_id, text=no_slots)
-                        conn.commit()
-                        return
-                conn.commit()
-    except Exception as e:
-        logger.error(f"Done callback link fetch/reserve error: {e}")
-        err = (
-            "⚠️ خطأ في تفاصيل المهمة قم بتحديث المهمات"
-            if user_lang.startswith('ar')
-            else "⚠️ Task details error, please reload missions"
-        )
-        await context.bot.send_message(chat_id=chat_id, text=err)
-        return
+        photo_file = await update.message.photo[-1].get_file()
+        await photo_file.download_to_drive(image_path)
 
-    # Save submission for manual review in the SAME DB that support.py reads (DATABASE_URL)
-    try:
-        with get_db_connection() as conn:   # بدل get_test2_db_connection
-            with conn.cursor() as cur:
-                channel_id = str(res)          # ✅ res هو channel_id القادم من جدول links
-                channel_name = description     # ✅ استخدم وصف المهمة كاسم للقناة/المهمة
-
-                # prevent duplicate pending requests for same task
-                cur.execute(
-                    "SELECT 1 FROM requests WHERE user_id=%s AND link_id=%s LIMIT 1",
-                    (user_id, link_id)
-                )
-                if cur.fetchone():
-                    pending = (
-                        "⏳ لقد أرسلت هذه المهمة مسبقاً وهي قيد المراجعة من الدعم."
-                        if user_lang.startswith('ar')
-                        else "⏳ You already submitted this task and it's pending support review."
-                    )
-                    await context.bot.send_message(chat_id=chat_id, text=pending)
-                    return
-
-                submission_marker = f"manual:{uuid.uuid4()}"
-                cur.execute(
-                    """
-                    INSERT INTO requests (
-                        user_id, user_name,
-                        channel_id, channel_name,
-                        date, link_id,
-                        locked, image_path
-                    )
-                    VALUES (%s, %s, %s, %s, NOW(), %s, FALSE, %s)
-                    """,
-                    (user_id, user_name, channel_id, channel_name, link_id, submission_marker)
-                )
-            conn.commit()
-
-        # Mark link as processed (so it disappears from user tasks list)
-        mark_link_processed(user_id, user_name, channel_name, link_id, res)
-
-    except Exception as e:
-        logger.error(f"Done callback DB error: {e}")
-        err = "⚠️ خطأ في شبكة النت يرجى إعادة تحميل المهمات" if user_lang.startswith('ar') else "⚠️ Internet/database error, please reload missions"
-        await context.bot.send_message(chat_id=chat_id, text=err)
-        return
-
-
-    # Reply to user with the same info message as before
-    final_msg = (
-        "✅ سيتم التحقق من إتمامك للمهمة، وفي حال إتمامها، ستُضاف نقطة +1 إلى نقاطك، وسيتم إضافتها إلى نقاطك في أسرع وقت ممكن. احرص على عدم إلغاء الاشتراك حتى لا تفقد الرصيد عند السحب. في حال عدم إتمام 5 مهمات سيتم حظرك لمدة يوم في المرة الأولى، وفي المرة الثانية سيتم حظرك نهائيًا في حال تكرارها ل10 مهمات. سيتم إبلاغك بالنتيجة. يرجى متابعة ملفك الشخصي، والآن انتقل إلى مهمة أخرى."
-        if user_lang.startswith('ar')
-        else
-        "✅ Your completion of the task will be verified, and if completed, +1 point will be added to your points, and it will be added to your points as soon as possible. Make sure not to unsubscribe so that you do not lose the balance when withdrawing. If you do not complete 5 tasks, you will be banned for a day the first time, and the second time you will be banned permanently if you repeat it for 10 tasks. You will be informed of the result. Please follow your profile, now move on to another task."
-    )
-    await context.bot.send_message(chat_id=chat_id, text=final_msg)
-
-    # Cleanup messages (best effort)
-    for mid in [message_id, query.message.message_id]:
-        if not mid:
-            continue
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=mid)
-        except Exception:
-            pass
-async def handle_unexpected_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Photos are no longer required; instruct the user to press Done."""
-    user_lang = update.effective_user.language_code or 'en'
-    msg = (
-        "📌 لا حاجة لإرسال لقطة شاشة الآن. قم بالاشتراك ثم اضغط زر (✅ أنجزت المهمة) في رسالة المهمة."
-        if user_lang.startswith('ar')
-        else "📌 No screenshot is required. Subscribe, then press (✅ Done) in the task message."
-    )
-    await update.message.reply_text(msg)
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT channel_id FROM links WHERE id = %s", (link_id,))
+                    result = cursor.fetchone()
+                    res = result[0] if result else None
+                    cursor.execute("UPDATE links SET allow_link = allow_link - 1 WHERE id = %s", (link_id,))
+                    conn.commit()
+
+            with get_test2_db_connection() as conn2:
+                with conn2.cursor() as cursor2:
+                    cursor2.execute("""
+                        INSERT INTO images (
+                            user_id, user_name, channel_name, channel_id, date, link_id, image_path
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (user_id, user_name, description, res, datetime.now(), link_id, image_path))
+                    conn2.commit()
+
+            mark_link_processed(user_id, user_name, description, link_id, res)
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            if os.path.exists(image_path):
+                os.remove(image_path)
+            msg = "⚠️ خطأ في شبكة النت يرجى إعادة تحميل المهمات" if user_lang.startswith('ar') else "⚠️ Internet error, please reload the missions"
+            await update.message.reply_text(msg)
+            return
+
+        msg = (
+            "✅ سيتم التحقق من إتمامك للمهمة، وفي حال إتمامها، ستُضاف نقطة +1 إلى نقاطك، وسيتم إضافتها إلى نقاطك في أسرع وقت ممكن. احرص على عدم إلغاء الاشتراك حتى لا تفقد الرصيد عند السحب. في حال عدم إتمام 5 مهمات سيتم حظرك لمدة يوم في المرة الأولى، وفي المرة الثانية سيتم حظرك نهائيًا في حال تكرارها ل10 مهمات. سيتم إبلاغك بالنتيجة. يرجى متابعة ملفك الشخصي، والآن انتقل إلى مهمة أخرى."
+            if user_lang.startswith('ar')
+            else
+            "✅ Your completion of the task will be verified, and if completed, +1 point will be added to your points, and it will be added to your points as soon as possible. Make sure not to unsubscribe so that you do not lose the balance when withdrawing. If you do not complete 5 tasks, you will be banned for a day the first time, and the second time you will be banned permanently if you repeat it for 10 tasks. You will be informed of the result. Please follow your profile, now move on to another task."
+        )
+        await update.message.reply_text(msg)
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await context.bot.delete_message(chat_id=chat_id, message_id=submission['text_msg_id'])
+        await context.bot.delete_message(chat_id=chat_id, message_id=submission['text1_msg_id'])
+            
+    except Exception as e:
+        logger.error(f"Image processing error: {e}")
+        if 'image_path' in locals() and os.path.exists(image_path):
+            os.remove(image_path)
+        error_msg = "⚠️ خطأ في معالجة الصورة" if user_lang.startswith('ar') else "⚠️ Image processing error"
+        await update.message.reply_text(error_msg)
+    finally:
+        if user_id in pending_submissions:
+            del pending_submissions[user_id]
 
 ### Helper Functions
 
@@ -1633,10 +1544,9 @@ def main() -> None:
         MessageHandler(filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'), send_educational_video),
         MessageHandler(filters.Regex(r'^Help$|^مساعدة$'), help_us),
         CallbackQueryHandler(handle_submit_callback, pattern=r"^submit_\d+$"),
-        CallbackQueryHandler(handle_done_callback, pattern=r"^done_\d+$"),
         CallbackQueryHandler(navigate_links, pattern=r"^(prev|next)_\d+$"),
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_commands),
-        MessageHandler(filters.PHOTO, handle_unexpected_photo)
+        MessageHandler(filters.PHOTO, process_image_upload)
     ]
 
     for handler in handlers:

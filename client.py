@@ -1,7 +1,6 @@
 import logging
 import re
 import sqlite3
-import config
 import random
 import smtplib
 from email.message import EmailMessage
@@ -10,7 +9,6 @@ from telegram import (
     Update,
     ReplyKeyboardMarkup,
     KeyboardButton,
-    ReplyKeyboardRemove,
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
@@ -28,12 +26,11 @@ import sys
 from pathlib import Path
 import psutil
 from telegram.error import Conflict
-import cachetools
 from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 import warnings
 import psycopg2
-from psycopg2 import pool
+import psycopg2.pool
 from psycopg2 import errors
 import phonenumbers
 from phonenumbers import geocoder

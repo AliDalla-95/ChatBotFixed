@@ -1,6 +1,6 @@
 import logging
 import psycopg2
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -8,7 +8,6 @@ from telegram.ext import (
     filters,
     ConversationHandler,
     ContextTypes,
-    CallbackContext
 )
 from datetime import datetime
 
