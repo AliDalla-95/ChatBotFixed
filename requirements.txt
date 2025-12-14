@@ -5,7 +5,7 @@
 # - send_mony.py
 # - youtube_chanel.py
 # - ocr.py / ocr_processor.py
-# - image_processing.py / scan_image10.py / pillow_comparing.py / database.py / try.py
+# - image_processing.py / scan_image.py / pillow_comparing.py / database.py / try.py
 #
 # Install:
 #   pip install -r requirements.min.my_runfiles.txt
@@ -36,7 +36,7 @@ Pillow
 opencv-python
 numpy
 
-# NLP (used in scan_image10.py)
+# NLP (used in scan_image.py)
 spacy
 
 # PDF -> images (used in ocr.py)

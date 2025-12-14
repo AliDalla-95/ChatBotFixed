@@ -1,6 +1,6 @@
 Post-install notes (needed for your runfiles)
 
-1) spaCy models referenced by scan_image10.py:
+1) spaCy models referenced by scan_image.py:
    python -m spacy download en_core_web_sm
    python -m spacy download ar_core_web_sm
    python -m spacy download xx_sent_ud_sm
