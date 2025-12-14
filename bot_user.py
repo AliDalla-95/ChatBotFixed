@@ -34,7 +34,7 @@ import config
 import sys
 import phonenumbers
 from phonenumbers import geocoder
-
+import uuid
 
 # Keep PTB warnings visible
 # warnings.filterwarnings("once", category=PTBUserWarning)
@@ -59,10 +59,12 @@ logging.getLogger("httpcore").setLevel(logging.INFO)
 pending_submissions = {}  # Format: {user_id: {link_id, chat_id, message_id, description}}
 user_pages = {}
 
+# warnings.filterwarnings("ignore", category=PTBUserWarning)
+
 # Conversation states
 # Original: EMAIL, PHONE = range(2)
 EMAIL, CODE_VERIFICATION, PHONE, CASH_NUMBER = range(4)
-WITHDRAW_AMOUNT, CARRIER_SELECTION, UPDATE_CASH = range(4, 7)
+WITHDRAW_AMOUNT, CARRIER_SELECTION, UPDATE_CASH, SUPPORT_MESSAGE = range(4, 8)
 
 def connect_db():
     """Create and return a PostgreSQL database connection"""
@@ -72,6 +74,125 @@ def connect_db():
         logger.error(f"Database connection failed: {e}")
         raise
 
+def connect_test2_db():
+    """Create and return a connection to Test2 database"""
+    try:
+        return psycopg2.connect(config.TEST2_DATABASE_URL)
+    except psycopg2.Error as e:
+        logger.error(f"Test2 database connection failed: {e}")
+        raise
+    
+    
+async def start_support_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start support conversation"""
+    user_lang = update.effective_user.language_code or 'en'
+    user_id = update.effective_user.id
+    
+    if await is_banned(user_id):
+        msg = "تم إلغاء وصولك 🚫 " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
+        await update.message.reply_text(msg)
+        return ConversationHandler.END
+
+    try:
+        with connect_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM support WHERE telegram_id = %s AND who_is = %s",
+                    (user_id,"user",)
+                )
+                result = cursor.fetchone()
+                if result:
+                    msg = (
+                        "⏳ أنت بالفعل أرسلت رسالة للدعم مسبقا يرجى الانتظار حتى يجيب فريق الدعم على رسالتك السابقة ثم بعد ذلك أرسل رسالة جديدة مرة أخرى شكرا لتفهمك." 
+                        if user_lang.startswith('ar') 
+                        else "⏳ You have already sent a message to support before. Please wait until the support team responds to your previous message and then send a new message again. Thank you for your understanding."
+                    )
+                    await update.message.reply_text(msg)
+                    await show_menu(update, context)
+                    return ConversationHandler.END
+                else:
+                    if user_lang.startswith('ar'):
+                        keyboard = [["إلغاء ❌"]]
+                        msg = "📩 يرجى كتابة رسالتك إلى الدعم:"
+                    else:
+                        keyboard = [["Cancel ❌"]]
+                        msg = "📩 Please write your support message:"
+                    
+                    await update.message.reply_text(
+                        msg,
+                        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+                    return SUPPORT_MESSAGE
+                    
+    except Exception as e:
+        logger.error(f"Support message error: {e}")
+        error_msg = (
+            "⚠️ فشل الإرسال للدعم" 
+            if user_lang.startswith('ar') 
+            else "⚠️ Failed In Support"
+        )
+        await update.message.reply_text(error_msg)
+
+
+async def save_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Save support message to database"""
+    user_lang = update.effective_user.language_code or 'en'
+    user_id = update.effective_user.id
+    message_text = update.message.text
+
+    if message_text in ["Cancel ❌", "إلغاء ❌"]:
+        await cancel_support(update, context)
+        return ConversationHandler.END
+
+    try:
+        with connect_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT email FROM users WHERE telegram_id = %s",
+                    (user_id,)
+                )
+                result = cursor.fetchone()[0]
+                cursor.execute("""
+                    INSERT INTO support 
+                        (telegram_id, message, user_name, message_date, email, who_is)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    user_id,
+                    message_text,
+                    update.effective_user.name,
+                    datetime.now(),
+                    result,
+                    "user"
+                ))
+                conn.commit()
+                success_msg = (
+                    f"✅ تم إرسال رسالتك إلى الدعم يرجى تفقد إيميلك\n📧 Email: {result} \n سوف يقوم فريق الدعم الخاص بنا بالتواصل معك في أقرب وقت ممكن." 
+                    if user_lang.startswith('ar') 
+                    else f"✅ Your message has been sent to support. Please check your email.\n {result} \nOur support team will contact you as soon as possible."
+                )
+                await update.message.reply_text(success_msg, reply_markup=ReplyKeyboardRemove())
+                await show_menu(update, context)
+        
+    except Exception as e:
+        logger.error(f"Support message error: {e}")
+        error_msg = (
+            "⚠️ فشل إرسال الرسالة" 
+            if user_lang.startswith('ar') 
+            else "⚠️ Failed to send message"
+        )
+        await update.message.reply_text(error_msg)
+    
+    return ConversationHandler.END
+
+async def cancel_support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel support request"""
+    user_lang = update.effective_user.language_code or 'en'
+    await update.message.reply_text(
+        "❌ تم إلغاء إرسال الرسالة" if user_lang.startswith('ar') else "❌ Message cancelled",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await show_menu(update, context)
+    return ConversationHandler.END
+    
 ##########################
 #    Database Functions  #
 ##########################
@@ -148,6 +269,7 @@ def get_message_id(telegram_id: int, chat_id: int, link_id: int) -> int:
 def get_allowed_links(telegram_id: int) -> list:
     """Retrieve links available for the user"""
     try:
+        allow_link = 0 
         with connect_db() as conn:
             with conn.cursor() as cursor:
                 query = """
@@ -155,10 +277,10 @@ def get_allowed_links(telegram_id: int) -> list:
                     FROM links l
                     LEFT JOIN user_link_status uls 
                         ON l.channel_id = uls.channel_id  AND uls.telegram_id = %s
-                    WHERE uls.processed IS NULL OR uls.processed = 0
+                    WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s
                     ORDER BY l.id DESC
                 """
-                cursor.execute(query, (telegram_id,))
+                cursor.execute(query, (telegram_id, allow_link,))
                 return cursor.fetchall()
     except Exception as e:
         logger.error(f"Error in get_allowed_links: {e}")
@@ -181,17 +303,13 @@ async def block_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     else:
         return False  # Can't send message if no chat ID
 
-    # Configuration for different block levels
     BLOCK_CONFIG = {
-        1: {'duration': timedelta(hours=3), 'penalty': timedelta(hours=3)},
-        2: {'duration': timedelta(days=3), 'penalty': timedelta(days=1)},
-        3: {'duration': timedelta(days=7), 'penalty': timedelta(days=3)},
+        5: {'duration': timedelta(days=1), 'penalty': timedelta(days=1)}
     }
 
     try:
         with connect_db() as conn:
             with conn.cursor() as cursor:
-                # Fetch user's block status
                 cursor.execute("""
                     SELECT block_num, date_block 
                     FROM users 
@@ -203,87 +321,82 @@ async def block_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
 
                 block_num, date_block = user_data
                 current_time = datetime.now()
-                if block_num == 3:
-                        # Unblock user
-                        cursor.execute("""
-                            UPDATE users 
-                            SET is_banned = True
-                            WHERE telegram_id = %s
-                        """, (telegram_id,))
-                        conn.commit()
-                        return False
-                else:
-                    if block_num == 0 or not date_block:
-                        return False  # Not blocked
 
-                    # Get block configuration
-                    config = BLOCK_CONFIG.get(block_num)
-                    if not config:
-                        logger.warning(f"Invalid block number {block_num} for user {telegram_id}")
-                        return False
+                # Handle permanent ban
+                if block_num == 10:
+                    cursor.execute("""
+                        UPDATE users 
+                        SET is_banned = True
+                        WHERE telegram_id = %s
+                    """, (telegram_id,))
+                    conn.commit()
+                    return False  # User is banned
 
-                    # Calculate time thresholds
-                    penalty_duration = config['penalty']
-                    block_duration = config['duration']
-                    release_time = date_block + block_duration
-                    penalty_threshold = current_time - penalty_duration
+                # Handle temporary block for level 5 only
+                if block_num != 5:
+                    return False  # Ignore other block levels
 
-                    # Check if penalty period has expired
-                    if date_block < penalty_threshold:
-                        return False
+                config = BLOCK_CONFIG[5]
+                penalty_duration = config['penalty']
+                block_duration = config['duration']
+                release_time = date_block + block_duration
+                penalty_threshold = current_time - penalty_duration
 
-                    # User remains blocked
-                    localized_time = release_time.strftime("%Y-%m-%d %H:%M:%S")
-                    msg = (
-                        "⚠️ تم حظرك حتى تاريخ {} بسبب انتهاكك الشروط وسياسة البوت والمصداقية بالعمل" 
-                        if user_lang.startswith('ar') 
-                        else "⚠️ You're blocked until {} Due to violation of the terms and conditions, bot policy and credibility of work"
-                    )
-                    # Use context.bot.send_message instead of update.message.reply_text
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=msg.format(localized_time)
-                    )
-                    return True
+                if date_block < penalty_threshold:
+                    return False  # Block expired
+
+                # Notify user about active block
+                localized_time = release_time.strftime("%Y-%m-%d %H:%M:%S")
+                msg = (
+                    "⚠️ تم حظرك حتى تاريخ {} بسبب انتهاكك الشروط وسياسة البوت والمصداقية بالعمل" 
+                    if user_lang.startswith('ar') 
+                    else "⚠️ You're blocked until {} Due to violation of the terms and conditions, bot policy and credibility of work"
+                )
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=msg.format(localized_time))
+                return True
 
     except Exception as e:
         logger.error(f"Block check error: {e}", exc_info=True)
-        return False  # Assume not blocked on error
-
-async def block_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mark a link as processed for the user"""
-    telegram_id = update.effective_user.id
-    date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        with connect_db() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT block_num FROM users WHERE telegram_id = %s",
-                    (telegram_id,)
-                )
-                user_data = cursor.fetchone()[0]
-                # if user_data == 0:
-                #     cursor.execute("""
-                #         UPDATE users 
-                #         SET block_num = block_num + %s
-                #         WHERE telegram_id = %s
-                #     """, (1,date_now, telegram_id,))
-                #     conn.commit()
+        return False
+        
+        
+        
+# async def block_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Mark a link as processed for the user"""
+#     telegram_id = update.effective_user.id
+#     date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+#     try:
+#         with connect_db() as conn:
+#             with conn.cursor() as cursor:
+#                 cursor.execute(
+#                     "SELECT block_num FROM users WHERE telegram_id = %s",
+#                     (telegram_id,)
+#                 )
+#                 user_data = cursor.fetchone()[0]
+#                 # if user_data == 0:
+#                 #     cursor.execute("""
+#                 #         UPDATE users 
+#                 #         SET block_num = block_num + %s
+#                 #         WHERE telegram_id = %s
+#                 #     """, (1,date_now, telegram_id,))
+#                 #     conn.commit()
                     
-                if user_data < 3:
-                    cursor.execute("""
-                        UPDATE users 
-                        SET block_num = block_num + %s, date_block = %s
-                        WHERE telegram_id = %s
-                    """, (1, date_now, telegram_id,))
-                    conn.commit()
-                # else:
-                #     await block(update, context)
-    except Exception as e:
-        logger.error(f"Error in update_user_points: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
+#                 if user_data < 3:
+#                     cursor.execute("""
+#                         UPDATE users 
+#                         SET block_num = block_num + %s, date_block = %s
+#                         WHERE telegram_id = %s
+#                     """, (1, date_now, telegram_id,))
+#                     conn.commit()
+#                 # else:
+#                 #     await block(update, context)
+#     except Exception as e:
+#         logger.error(f"Error in update_user_points: {e}")
+#         conn.rollback()
+#     finally:
+#         conn.close()
 
 
 
@@ -393,7 +506,8 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             keyboard = [
                 ["بدء 👋", "تسجيل الدخول 📝"],
                 ["الملف الشخصي 📋", "عرض المهام 🔍"],
-                ["سحب الأرباح 💵", "فيديو تعليمي 📹"]  # Added Arabic command# New Arabic withdrawal button
+                ["سحب الأرباح 💵", "فيديو تعليمي 📹"],  # Added Arabic command# New Arabic withdrawal button
+                ["الدعم", "مساعدة"]
             ]
             menu_text = "اختر أمرا من القائمة أدناه"
         else:
@@ -401,7 +515,8 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             keyboard = [
                 ["👋 Start", "📝 Register"],
                 ["📋 Profile", "🔍 View Links"],
-                ["💵 Withdraw", "Educational video 📹"]  # New English withdrawal button
+                ["💵 Withdraw", "Educational video 📹"],  # New English withdrawal button
+                ["SUPPORT", "Help"]
             ]
             menu_text = "Choose a command From The Menu Below:"
             
@@ -783,7 +898,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         profile = get_profile(user_id)
         # print(f"{profile}")
         if profile:
-            _, name, email, phone, country, reg_date, points, cash_number, total_withdrawals = profile
+            _, name, email, phone, country, reg_date, points, cash_number, block_num ,total_withdrawals, res_name = profile
             if user_lang.startswith('ar'):
                 msg = (f"📋 *ملفك الشخصي :*\n"
                     f"👤 أسمك : {escape_markdown(name)}\n"
@@ -794,7 +909,11 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     f"⭐ تاريخ التسجيل : {escape_markdown(str(reg_date))}\n"
                     f"🏆 نقاطك : {points} نقطة\n"
                     f"💰 إجمالي السحوبات : {total_withdrawals} نقطة\n\n"
-                    f"سوف يتم إضافة رصيد مهماتك الحديثة التي قمت بإنجازها في أقرب وقت وأي مهمة تقوم بإلغاء تنفيذها من تلقاء نفسك سوف يتم خصم رصيدها عند سحب الأرباح")
+                    f"سوف يتم إضافة رصيد مهماتك الحديثة التي قمت بإنجازها في أقرب وقت وأي مهمة تقوم بإلغاء تنفيذها من تلقاء نفسك سوف يتم خصم رصيدها عند سحب الأرباح\n\n"
+                    f"هناك مهمات قمت بالاشتراك بها ولكن لم تنجزها من المرة الأولى وتم وضع إشارة حظر عليك وحتى لو قمت بإنجازها للمرة الثانية سوف تبقى إشارة الحظر عليك ويجب الانتباه عندما تصل إشارة الحظر للرقم ٥ سوف يتم حظرك لمدة يوم واحد وعندما تصبح إشارة الحظر ١٠ سيتم حظرك نهائيا عن استخدام البوت وعندها لفك الحظر يرجى التواصل مع فؤيق الدعم:\n"
+                    f"إجمالي الحظر لحد هذه اللحظة : {block_num}\n\n"
+                    f"أسماء القنوات التي لم يتم إنجازها ويجب إعادة الاشتراك بها قبل أن تختفي من قائمة المهمات :\n {res_name}"
+                    )
             else:
                 msg = (f"📋 *Profile Information*\n"
                     f"👤 Name: {escape_markdown(name)}\n"
@@ -805,7 +924,11 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     f"⭐ Registration Date: {escape_markdown(str(reg_date))}\n"
                     f"🏆 Points: {points} points\n"
                     f"💰 Total Withdrawals: {total_withdrawals} points\n\n"
-                    f"Your recently completed tasks will be credited as soon as possible, and any task you cancel on your own will have its balance deducted when withdrawing profits")              
+                    f"Your recently completed tasks will be credited as soon as possible, and any task you cancel on your own will have its balance deducted when withdrawing profits\n\n"
+                    f"There are tasks that you have subscribed to but did not complete them the first time and a ban mark was placed on you and even if you complete them the second time the ban mark will remain on you and you must be careful when the ban mark reaches number 5 you will be banned for one day and when the ban mark reaches 10 you will be permanently banned from using the bot and then to lift the ban please contact the support team:\n"
+                    f"Total Blocks to date: {block_num}\n\n"
+                    f"Names of channels that have not been completed and must be resubscribed to before they disappear from the to do list:\n{res_name}"
+                    )         
             response = (msg)
             await update.message.reply_text(response, parse_mode="MarkdownV2")
         else:
@@ -839,7 +962,7 @@ def get_profile(telegram_id: int) -> tuple:
                     update_user_points(telegram_id, points)
                     conn.commit()   
                 cursor.execute(
-                    "SELECT telegram_id, full_name, email, phone, country, registration_date, points, cash_number FROM users WHERE telegram_id = %s",
+                    "SELECT telegram_id, full_name, email, phone, country, registration_date, points, cash_number, block_num FROM users WHERE telegram_id = %s",
                     (telegram_id,)
                 )
                 user_data = cursor.fetchone()
@@ -852,8 +975,25 @@ def get_profile(telegram_id: int) -> tuple:
                     (telegram_id,)
                 )
                 total_withdrawals = cursor.fetchone()[0] or 0
+                
+                # Fetch all distinct channel names for the user
+                cursor.execute(
+                    "SELECT DISTINCT channel_name FROM users_block WHERE telegram_id = %s",
+                    (telegram_id,)
+                )
+                results = cursor.fetchall()
 
-                return (*user_data, total_withdrawals)
+                # Join channel names with newline if results exist
+                res_name = '\n'.join(row[0] for row in results) if results else ''
+
+                # Fetch total sum of block_num (separate query)
+                # cursor.execute(
+                #     "SELECT COALESCE(SUM(block_num), 0) FROM users_block WHERE telegram_id = %s",
+                #     (telegram_id,)
+                # )
+                # res_num = cursor.fetchone()[0] or 0
+                
+                return (*user_data, total_withdrawals, res_name)
     except Exception as e:
         logger.error(f"Error in get_profile: {e}")
         return None
@@ -902,14 +1042,14 @@ async def send_links_page(user_lang: str,chat_id: int, user_id: int, page: int, 
             if user_lang.startswith('ar'):
                 text = (
                     f"📛 {escape_markdown(desc)}\n"
-                    f"👤 *بواسطة* {escape_markdown(adder)}\n"
+                    # f"👤 *بواسطة* {escape_markdown(adder)}\n"
                     f"[🔗 رابط الذهاب للمهمة انقر هنا]({yt_link})"
                     )
                 keyboard = [[InlineKeyboardButton(" تنفيذ المهمة وبعد الانتهاء تحميل لقطة الشاشة لتأكيدها مبدئيا 📸", callback_data=f"submit_{link_id}")]]
             else:
                 text = (
                     f"📛 {escape_markdown(desc)}\n"
-                    f"👤 *By:* {escape_markdown(adder)}\n"
+                    # f"👤 *By:* {escape_markdown(adder)}\n"
                     f"[🔗 YouTube Link]({yt_link})"
                 )
                 keyboard = [[InlineKeyboardButton("📸 Accept And  Subscribed And Then Submit Screenshot", callback_data=f"submit_{link_id}")]]
@@ -966,12 +1106,14 @@ async def handle_text_commands(update: Update, context: ContextTypes.DEFAULT_TYP
             "📋 Profile": "profile",
             "🔍 View Links": "view_links",
             "Educational video 📹": "educational_video",
+            "Help" : "help",
             # Arabic commands
             "بدء 👋" : "start",
             "تسجيل الدخول 📝": "register",
             "الملف الشخصي 📋": "profile",
             "عرض المهام 🔍": "view_links",
-            "فيديو تعليمي 📹": "educational_video"
+            "فيديو تعليمي 📹": "educational_video",
+            "مساعدة" : "help",
         }
 
         action = command_map.get(text)
@@ -986,6 +1128,10 @@ async def handle_text_commands(update: Update, context: ContextTypes.DEFAULT_TYP
             await profile_command(update, context)
         elif action == "view_links":
             await view_links(update, context)
+        elif action == "help":
+            await help_us(update, context)
+        # elif action == "support":
+        #     await support(update, context)
         else:
             msg = "أمر غير معروف. يرجى استخدام أزرار القائمة ❌ " if user_lang.startswith('ar') else "❌ Unknown command. Please use the menu buttons."
             await update.message.reply_text(msg)
@@ -995,6 +1141,52 @@ async def handle_text_commands(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Text command error: {e}")
         error_msg = "تعذر معالجة الأمر. يرجى المحاولة مرة أخرى ⚠️ " if user_lang.startswith('ar') else "⚠️ Couldn't process command. Please try again."
         await update.message.reply_text(error_msg)
+
+
+
+
+async def help_us(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Display available links"""
+    try:
+        user_lang = update.effective_user.language_code or 'en'
+        if user_lang.startswith('ar'):
+            user_lang_detail = "ar"
+        else:
+            user_lang_detail = "en"
+        user_id = update.effective_user.id
+        
+        if await block_check(update, context):
+            return  # User is blocked, stop processing
+        
+        if await is_banned(user_id):
+            msg = "تم إلغاء وصولك 🚫 " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
+            await update.message.reply_text(msg)
+            return
+        if not user_exists(user_id):
+            msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌ " if user_lang.startswith('ar') else "❌ Please register first!"
+            await update.message.reply_text(msg)
+            return
+
+        with connect_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT message_help FROM help_us WHERE lang = %s AND bot = %s",
+                    (user_lang_detail,"user",)
+                )
+                result = cursor.fetchone()
+                res = result[0]
+                if result:
+                    await update.message.reply_text(res)
+                    await show_menu(update, context)
+                else:
+                    await update.message.reply_text("Help Message")
+                    await show_menu(update, context)
+        
+    except Exception as e:
+        logger.error(f"Help error: {e}")
+        msg = "لا يمكن تحميل رسالة المساعدة حاليا ⚠️" if user_lang.startswith('ar') else "⚠️ Error in Help us"
+        await update.message.reply_text(msg)
+
 
 async def navigate_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle pagination navigation for links list"""
@@ -1095,7 +1287,7 @@ def get_link_description(link_id: int) -> str:
     
     
 async def process_image_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle image verification with user-specific context"""
+    """Handle image verification and store path in database"""
     try:
         user_lang = update.effective_user.language_code or 'en'
         user_id = update.effective_user.id
@@ -1112,75 +1304,86 @@ async def process_image_upload(update: Update, context: ContextTypes.DEFAULT_TYP
         message_id = submission['message_id']
         description = submission['description']
         
-        photo_file = await update.message.photo[-1].get_file()
-        image_path = f"temp_{user_id}_{link_id}.jpg"
-        await photo_file.download_to_drive(image_path)
+        # Create image_process directory if not exists
+        os.makedirs("image_process", exist_ok=True)
         
-        msg = " جاري التحقق يرجى الانتظار٫٫٫٫٫٫٫٫ 🔍" if user_lang.startswith('ar') else "🔍 Verifying..."
-        processing_msg = await update.message.reply_text(
-            msg,
-            reply_to_message_id=message_id
-        )
+        # Generate unique filename
+        filename = f"user_{user_id}_link_{link_id}_{uuid.uuid4().hex}.jpg"
+        image_path = os.path.join("image_process", filename)
+        
+        # Download and save the image
+        photo_file = await update.message.photo[-1].get_file()
+        await photo_file.download_to_drive(image_path)
 
-        verification_passed = False
         try:
-            if scan_image10.check_text_in_image(image_path, description):
-                verification_passed = True
+            # Get data from main database (Test)
+            with connect_db() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT channel_id FROM links WHERE id = %s",
+                        (link_id,)
+                    )
+                    result = cursor.fetchone()
+                    res = result[0]
+                    cursor.execute("""
+                        UPDATE links 
+                        SET allow_link = allow_link - 1
+                        WHERE id = %s
+                    """, (link_id,))
+                    conn.commit()
+            # Save to Test2 database
+            with connect_test2_db() as conn2:
+                with conn2.cursor() as cursor2:
+                    cursor2.execute("""
+                        INSERT INTO images (
+                            user_id, 
+                            user_name, 
+                            channel_name, 
+                            channel_id, 
+                            date, 
+                            link_id, 
+                            image_path
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            user_id,
+                            user_name,
+                            description,
+                            res,
+                            datetime.now(),
+                            link_id,
+                            image_path
+                        ))
+                    conn2.commit()
 
         except Exception as e:
-            logger.error(f"Image processing error: {e}")
+            logger.error(f"Database error: {e}")
+            # Cleanup the image file if database insert failed
+            if os.path.exists(image_path):
+                os.remove(image_path)
+            msg = "خطأ في شبكة النت يرجى إعادة  تحميل المهمات ⚠️" if user_lang.startswith('ar') else "Internet error, please reload the missions ⚠️"
+            await update.message.reply_text(msg)
+            return
+
+        # Mark as processed in main system
+        mark_link_processed(user_id, user_name, description, link_id, res)
+        # update_likes(link_id)
         
-        if verification_passed:
-            try:
-                with connect_db() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute(
-                            "SELECT channel_id,description FROM links WHERE id = %s",
-                            (link_id,)
-                        )
-                        result = cursor.fetchone()
-                        res= result[0]
-                        res_name = result[1]
-            except Exception as e:
-                logger.error(f"Ban check error: {e}")
-                return False
-            youtube_link = description
-            mark_link_processed(user_id, user_name, res_name, link_id, res)
-            # update_user_points(user_id)
-            update_likes(link_id)
-            msg = "✅ تهانينا لقد كسبت نقطة واحدة +١ وسوف يتم إضافتها إلى نقاطك في أقرب وقت تأكد من عدم إلغاء الاشتراك لكي لاتخسر الرصيد عند السحب يرجى الانتقال لمهمة أخرى " if user_lang.startswith('ar') else "✅ Congratulations, you have earned 1 point +1 and it will be added to your points as soon as possible. Make sure not to cancel your subscription so that you do not lose the balance when withdrawing. Please move on to another task."
-            await update.message.reply_text(
-                msg,
-                reply_to_message_id=message_id
-            )
-        else:
-            msg = " فشل التحقق يبدو أنك غير مشترك بالقناة يرجى الاشتراك ثم إعادة المحاولة ❌" if user_lang.startswith('ar') else "❌ Verification failed. Try again."
-            await update.message.reply_text(
-                msg,
-                reply_to_message_id=message_id
-            )
-            # List of admin user IDs
-            admins_id = [7168120805, 6106281772, 1130152311]
-
-            # Check if user is NOT in admin list
-            if user_id not in admins_id:
-                await block_add(update, context)
-
-        await context.bot.delete_message(
-            chat_id=chat_id,
-            message_id=processing_msg.message_id
-        )
+        msg = ("✅ سيتم التحقق من إتمامك للمهمة، وفي حال إتمامها، ستُضاف نقطة +1 إلى نقاطك، وسيتم إضافتها إلى نقاطك في أسرع وقت ممكن. احرص على عدم إلغاء الاشتراك حتى لا تفقد الرصيد عند السحب. في حال عدم إتمام 5 مهمات سيتم حظرك لمدة يوم في المرة الأولى، وفي المرة الثانية سيتم حظرك نهائيًا في حال تكرارها ل10 مهمات. سيتم إبلاغك بالنتيجة. يرجى متابعة ملفك الشخصي، والآن انتقل إلى مهمة أخرى."
+               if user_lang.startswith('ar') else 
+               "✅ Your completion of the task will be verified, and if completed, +1 point will be added to your points, and it will be added to your points as soon as possible. Make sure not to unsubscribe so that you do not lose the balance when withdrawing. If you do not complete 5 tasks, you will be banned for a day the first time, and the second time you will be banned permanently if you repeat it for 10 tasks. You will be informed of the result. Please follow your profile, now move on to another task.")
+        await update.message.reply_text(msg, reply_to_message_id=message_id)
 
     except Exception as e:
-        logger.error(f"Image error: {e}")
-        msg = " خطأ في معالجة الطلب يرجى تحديث المهمات وإعادة المحاولة لاحقا ⚠️" if user_lang.startswith('ar') else "⚠️ Processing error. Please try again."
-        await update.message.reply_text("⚠️ Processing error. Please try again.")
-    finally:
+        logger.error(f"Image processing error: {e}")
+        # Cleanup image file if error occurred
         if 'image_path' in locals() and os.path.exists(image_path):
             os.remove(image_path)
+        error_msg = "⚠️ خطأ في معالجة الصورة" if user_lang.startswith('ar') else "⚠️ Image processing error"
+        await update.message.reply_text(error_msg)
+        
+    finally:
         if user_id in pending_submissions:
             del pending_submissions[user_id]
-
 ##########################
 #    Helper Functions    #
 ##########################
@@ -1728,6 +1931,8 @@ def main() -> None:
             MessageHandler(filters.Regex(r'^📝 Register$'), register),
             MessageHandler(filters.Regex(r'^/register$'), register),
             MessageHandler(filters.Regex(r'^تسجيل الدخول 📝$'), register),
+            MessageHandler(filters.Regex(r'^مساعدة$'), help_us),
+            MessageHandler(filters.Regex(r'^Help$'), help_us),
             # MessageHandler(
             #         filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'),
             #         send_educational_video)
@@ -1759,6 +1964,27 @@ def main() -> None:
             CommandHandler('cancel', cancel_registration),
             MessageHandler(filters.Regex(r'^(/start|/register)'), restart_registration)
         ],
+        per_message=True,  # <-- Add this line
+        allow_reentry=True
+    )
+
+    support_conv = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r'^SUPPORT$'), start_support_conversation),
+            MessageHandler(filters.Regex(r'^الدعم$'), start_support_conversation),
+        ],
+        states={
+            SUPPORT_MESSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_message),
+                CommandHandler('cancel', cancel_support),
+                MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_support),
+            ],
+        },
+        fallbacks=[
+            CommandHandler('cancel', cancel_support),
+            MessageHandler(filters.ALL, cancel_support)
+        ],
+        per_message=True,  # <-- Add this line
         allow_reentry=True
     )
 
@@ -1785,7 +2011,8 @@ def main() -> None:
             #     MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_withdrawal)
             # ]
         },
-        fallbacks=[CommandHandler('cancel', cancel_withdrawal)]
+        fallbacks=[CommandHandler('cancel', cancel_withdrawal)],
+        per_message=True  # <-- Add this line
     )
 
     # Register handlers
@@ -1795,6 +2022,7 @@ def main() -> None:
         CommandHandler('profile', profile_command),
         CommandHandler('viewlinks', view_links),
         conv_handler,
+        support_conv,
         MessageHandler(
                 filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'),
                 send_educational_video),
