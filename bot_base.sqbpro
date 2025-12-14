@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="bot_base.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="0"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="2144"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="likes" custom_title="0" dock_id="1" table="4,5:mainlikes"/><dock_state state="000000ff00000000fd0000000100000002000003fd0000025cfc0100000001fc00000000000003fd0000014600fffffffa000000000100000004fb000000160064006f0063006b00420072006f00770073006500310100000000ffffffff0000014600fffffffb000000160064006f0063006b00420072006f00770073006500320000000000ffffffff0000000000000000fb000000160064006f0063006b00420072006f00770073006500330000000000ffffffff0000000000000000fb000000160064006f0063006b00420072006f00770073006500340000000000ffffffff0000000000000000000002e50000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="authorized_link_adders" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="89"/><column index="2" value="76"/><column index="3" value="49"/><column index="4" value="74"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="channels" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="92"/><column index="2" value="92"/><column index="3" value="201"/><column index="4" value="138"/><column index="5" value="300"/><column index="6" value="162"/><column index="7" value="49"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="clients" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="58"/><column index="2" value="92"/><column index="3" value="240"/><column index="4" value="123"/><column index="5" value="99"/><column index="6" value="84"/><column index="7" value="162"/><column index="8" value="69"/><column index="9" value="77"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="likes" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="225"/><column index="2" value="238"/><column index="3" value="199"/><column index="4" value="207"/><column index="5" value="270"/><column index="6" value="260"/><column index="7" value="215"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="links" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="49"/><column index="2" value="502"/><column index="3" value="131"/><column index="4" value="92"/><column index="5" value="167"/><column index="6" value="49"/><column index="7" value="297"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="sqlite_sequence" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="138"/><column index="2" value="49"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="user_likes" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="58"/><column index="2" value="70"/><column index="3" value="49"/><column index="4" value="50"/><column index="5" value="49"/><column index="6" value="106"/><column index="7" value="120"/><column index="8" value="99"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="user_link_status" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="49"/><column index="2" value="92"/><column index="3" value="54"/><column index="4" value="78"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="users" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="49"/><column index="2" value="92"/><column index="3" value="76"/><column index="4" value="185"/><column index="5" value="53"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">SELECT id FROM links WHERE youtube_link = &quot;https://youtube.com/@eremnews.?si=3fdIeYqzkX4Slb6Y&quot; and added_by = 6936321897</sql><sql name="Edit Trigger create_like_after_channel*">DROP TRIGGER &quot;main&quot;.&quot;create_like_after_channel&quot;;
+CREATE TRIGGER create_like_after_channel
+AFTER INSERT ON links
+FOR EACH ROW
+BEGIN
+  INSERT OR IGNORE INTO likes (
+      id,user_id, channel_id, adder, url, channel_name, channel_likes
+  )
+  VALUES (
+      NEW.id,	
+      NEW.user_id,
+      NEW.channel_id,
+      NEW.adder,
+      NEW.url,
+      NEW.channel_name,
+      0  -- default value for channel_likes
+  );
+END</sql><sql name="Edit Trigger create_like_after_channel*">DROP TRIGGER &quot;main&quot;.&quot;create_like_after_channel&quot;;
+CREATE TRIGGER create_like_after_channel
+AFTER INSERT ON links
+FOR EACH ROW
+BEGIN
+  INSERT OR IGNORE INTO likes (
+      id,user_id, channel_id, adder, url, channel_name, channel_likes
+  )
+  VALUES (
+      NEW.id,	
+      NEW.user_id,
+      NEW.channel_id,
+      NEW.adder,
+      NEW.url,
+      NEW.channel_name,
+      0  -- default value for channel_likes
+  );
+END</sql><sql name="Edit Trigger create_like_after_channel*">UPDATE users SET points = points + 1
+            WHERE telegram_id = 6936321897</sql><current_tab id="3"/></tab_sql></sqlb_project>

@@ -1,0 +1,47 @@
+""" ali """
+import pytesseract
+from PIL import Image, ImageEnhance, ImageFilter
+import cv2
+import numpy as np
+
+
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
+def preprocess_image(image_path):
+    """Enhance image quality before text recognition."""
+    # Open image and convert to grayscale
+    img = Image.open(image_path).convert('L')  
+    
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2)  # Increase contrast
+    
+    # Convert to NumPy array for OpenCV processing
+    img_cv = np.array(img)
+
+    # Apply Gaussian blur to remove noise
+    img_cv = cv2.GaussianBlur(img_cv, (3, 3), 0)
+
+    # Apply adaptive thresholding (binarization)
+    img_cv = cv2.adaptiveThreshold(
+        img_cv, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+
+    # Convert back to PIL Image
+    processed_img = Image.fromarray(img_cv)
+    
+    return processed_img
+
+def check_text_in_image(image_path, required_text):
+    """Check if required text exists in the processed image."""
+    processed_img = preprocess_image(image_path)
+
+    # Use Tesseract OCR to extract text
+    extracted_text = pytesseract.image_to_string(processed_img, lang='eng')
+
+    # Normalize text for better matching (remove extra spaces & lowercase)
+    extracted_text = extracted_text.strip()
+    required_text = required_text.strip()
+    print(f"User Data Split: {extracted_text} , {required_text}")
+
+    return required_text in extracted_text and ("subscribed" in extracted_text)

@@ -1,0 +1,21 @@
+import re
+
+def filter_non_arabic_words(text):
+    # This regex will help us detect if a word contains any Arabic character.
+    arabic_re = re.compile(r'[\u0600-\u06FF]')
+    
+    # Split the text into words. (This simple split may not handle punctuation perfectly.)
+    words = text.split()
+    filtered_words = []
+    
+    for word in words:
+        # If the word does NOT contain any Arabic letter, keep it.
+        if not arabic_re.search(word):
+            filtered_words.append(word)
+    
+    # Join the words back into a single string.
+    return ' '.join(filtered_words)
+
+text = "Hello world! مرحبا بالعالم! This is an example with symbols: @#$%."
+result = filter_non_arabic_words(text)
+print(result)

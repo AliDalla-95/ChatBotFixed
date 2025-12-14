@@ -1,0 +1,16 @@
+sudo pacman -S tesseract
+
+# English (already included in base install but best to verify)
+sudo pacman -S tesseract-data-eng
+
+# Arabic
+sudo pacman -S tesseract-data-ara
+
+# Russian
+sudo pacman -S tesseract-data-rus
+
+# Additional languages (e.g., French, Spanish)
+sudo pacman -S tesseract-data-fra tesseract-data-spa
+
+
+
