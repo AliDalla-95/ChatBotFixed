@@ -12,6 +12,11 @@ from telegram.ext import (
     filters
 )
 from telegram.error import BadRequest
+from telegram.warnings import PTBUserWarning
+import warnings
+
+# Keep PTB warnings visible
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 # Configure logging
 logging.basicConfig(
@@ -167,7 +172,7 @@ async def show_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE, p
         buttons = []
         
         for wd in withdrawals:
-            message += f"🔹 #{wd['id']} - {wd['amount']} pts - {wd['full_name']}\n"
+            message += f"🔹 #{wd['id']} - {wd['amount_before']} pts - {wd['full_name']}\n"
             buttons.append([InlineKeyboardButton(
                 f"Detail #{wd['id']}", callback_data=f"detail_{wd['id']}_{page}"
             )])
@@ -226,6 +231,7 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mark_as_sent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mark withdrawal as processed and update list"""
+    user_name = update.effective_user.name
     query = update.callback_query
     try:
         await query.answer("⏳ Processing request...")
@@ -239,21 +245,30 @@ async def mark_as_sent(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Update database
         with connect_db() as conn:
             with conn.cursor() as cursor:
+                cursor.execute("SELECT amount_before FROM withdrawals WHERE id = %s", (wd_id,))
+                am = cursor.fetchone()
+                am_finall = int(am[0]) + int(withdrawal['amount']) 
                 cursor.execute("""
                     UPDATE withdrawals 
-                    SET status = 'processed',
+                    SET status = 'processed', amount = %s, user_sent = %s,
                         processed_date = NOW()
                     WHERE id = %s
-                """, (wd_id,))
+                """, (am_finall,user_name,wd_id,))
+                cursor.execute(
+                    "UPDATE withdrawals SET amount_before = 0 WHERE id = %s",
+                    (wd_id,)
+                )
                 conn.commit()
 
         # Prepare user message
         user_message = (
             "🎉 Withdrawal Processed!\n"
             f"📆 Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-            f"💎 Amount: {withdrawal['amount']} pts\n"
+            f"💎 Amount: {withdrawal['amount_before']} pts\n"
             f"👤 Receiver: {withdrawal['full_name']}\n"
-            f"📱 Phone: {withdrawal['phone']}"
+            f"👤 Sender: {user_name}\n"
+            f"📱 Phone: {withdrawal['phone']}\n"
+            f"💳 Cash Number: {withdrawal['cash_number']}\n"
         )
 
         # Try to send notification
@@ -276,7 +291,8 @@ async def mark_as_sent(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "────────────────────\n"
             f"👤 Name: {withdrawal['full_name']}\n"
             f"📱 Phone: {withdrawal['phone']}\n"
-            f"💸 Amount: {withdrawal['amount']} points\n"
+            f"💳 Cash Number: {withdrawal['cash_number']}\n"
+            f"💸 Amount: {withdrawal['amount_before']} points\n"
             f"📡 Carrier: {withdrawal['carrier']}\n"
             f"📅 Date: {withdrawal['withdrawal_date'].strftime('%Y-%m-%d %H:%M')}\n"
             "────────────────────\n"
@@ -322,7 +338,8 @@ async def show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "────────────────────\n"
             f"👤 Name: {withdrawal['full_name']}\n"
             f"📱 Phone: {withdrawal['phone']}\n"
-            f"💸 Amount: {withdrawal['amount']} points\n"
+            f"💳 Cash Number: {withdrawal['cash_number']}\n"
+            f"💸 Amount: {withdrawal['amount_before']} points\n"
             f"📡 Carrier: {withdrawal['carrier']}\n"
             f"📅 Date: {withdrawal['withdrawal_date'].strftime('%Y-%m-%d %H:%M')}\n"
             "────────────────────\n"
@@ -402,7 +419,8 @@ def main():
                 CallbackQueryHandler(handle_pagination, pattern=r"^page_")
             ]
         },
-        fallbacks=[CommandHandler('start', start)]
+        fallbacks=[CommandHandler('start', start)],
+        
     )
 
     application.add_handler(conv_handler)
