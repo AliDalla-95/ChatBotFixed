@@ -1,0 +1,14 @@
+Post-install notes (needed for your runfiles)
+
+1) spaCy models referenced by scan_image5.py:
+   python -m spacy download en_core_web_sm
+   python -m spacy download ar_core_web_sm
+   python -m spacy download xx_sent_ud_sm
+
+2) pytesseract needs the Tesseract binary installed on the OS:
+   - macOS:   brew install tesseract
+   - Ubuntu:  sudo apt-get install tesseract-ocr
+
+3) pdf2image (ocr.py) needs Poppler installed:
+   - macOS:   brew install poppler
+   - Ubuntu:  sudo apt-get install poppler-utils

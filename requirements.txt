@@ -1,94 +1,43 @@
-python-telegram-bot
-sqlalchemy
-pytesseract
-pillow
-requests
-annotated-types
-anyio
-appdirs
-atomicwrites
-blis
-catalogue
-contourpy
-confection
-cloudpathlib
-cell-executed-alert
-cycler
-cymem
-#en_core_web_lg
-#en_core_web_sm
-exceptiongroup
-fastapi
-fonttools
-fuzzywuzzy
-google-api-core
-google-api-python-client
-google-auth
-google-auth-httplib2
-googleapis-common-protos
-h11
-httpcore
-httplib2
-httpx
-id
-jlab-enhanced-cell-toolbar
-jsonpointer
-jupyterlab-autoscrollcelloutput
-jupyterlab-cell-autorun-kernel-restart
-jupyterlab-cell-flash
-kiwisolver
-langcodes
-language_data
-Levenshtein
-marisa-trie
-matplotlib
-mkl-service; platform_system != "Darwin"
-murmurhash
-numpy
-oauth2client
-opencv-python
-packaging
-pandas
-pdf2image
-phonenumbers
-pillow
-preshed
-proto-plus
-protobuf
-psycopg2
+# Minimal requirements for the exact set of files in your Archive.zip:
+# - bot_finall_update.py
+# - client_admin_paid.py
+# - client_test_pay.py
+# - send_mony.py
+# - youtube_chanel.py
+# - ocr.py / ocr_processor.py
+# - image_processing.py / scan_image5.py / pillow_comparing.py / database.py / try.py
+#
+# Install:
+#   pip install -r requirements.min.my_runfiles.txt
+
+# Telegram bots (uses ApplicationBuilder/ContextTypes)
+python-telegram-bot>=20
+
+# Database
 psycopg2-binary
-pyasn1-modules
-pydantic
-pydantic_core
-pyls-spyder
-pyparsing
-PyQt5
-PyQtWebEngine
-pyTelegramBotAPI
+
+# HTTP + file watching
+requests
+watchdog
+
+# Phone parsing (used in bot_finall_update.py + client_test_pay.py)
+phonenumbers
+
+# Google API client (used in client_test_pay.py + youtube_chanel.py)
+google-api-python-client
+cachetools
+
+# System/process utilities (used in client_test_pay.py)
+psutil
+
+# OCR + image processing (used in image_processing.py / ocr.py)
 pytesseract
-python-Levenshtein
-python-telegram-bot
-pytz
-RapidFuzz
-rsa
-setuptools
-shellingham
-six
-sniffio
-socksio
+Pillow
+opencv-python
+numpy
+
+# NLP (used in scan_image5.py)
 spacy
-spacy-legacy
-spacy-loggers
-srsly
-starlette
-telebot
-thinc
-tk
-typer
-typing_extensions
-tzdata
-uritemplate
-uvicorn
-wasabi
-weasel
-wheel
+
+# PDF -> images (used in ocr.py)
+pdf2image

@@ -1,9 +1,0 @@
-import os
-import bot
-import Client
-import subprocess
-
-
-
-process1 = subprocess.Popen(['python', 'bot.py'], preexec_fn=os.setsid)
-process2 = subprocess.Popen(['python', 'Client.py'], preexec_fn=os.setsid)
