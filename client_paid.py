@@ -259,8 +259,8 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             cur.execute("""
                 INSERT INTO links (
                     youtube_link, description, added_by, adder, 
-                    submission_date, channel_id, id_pay, subscription_count 
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    submission_date, channel_id, id_pay, subscription_count, allow_link 
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (record['youtube_link'],
                   record['description'],
                   record['added_by'],
@@ -268,6 +268,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                   record['submission_date'],
                   record['channel_id'],
                   record['id_pay'],
+                  record['subscription_count'],
                   record['subscription_count']))
 
             

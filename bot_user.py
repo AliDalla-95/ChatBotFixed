@@ -940,7 +940,7 @@ async def send_links_page(user_lang: str, chat_id: int, user_id: int, page: int,
                 if user_lang.startswith('ar')
                 else
                 f"📛 {escape_markdown(desc)}\n"
-                f"[🔗 YouTube Link]({yt_link})"
+                f"[🔗 Instagram Link]({yt_link})"
             )
             keyboard = [[InlineKeyboardButton(
                 "✅ اشترك ثم اضغط: أنجزت المهمة" if user_lang.startswith('ar')
