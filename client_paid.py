@@ -39,6 +39,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+NOTIFY_USER = False
+
+
+
 # ========== DATABASE HELPERS ==========
 def get_conn():
     return psycopg2.connect(**DATABASE_CONFIG)
@@ -291,20 +295,21 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             conn.commit()
             # r = record[1:9]
             # print(f"{r}")
-            # Notify user with price
-            try:
-                await context.bot.send_message(
-                    chat_id=record['added_by'],
-                    text=f"✅ Payment processed!\n"
-                        f"📋 Details:\n"
-                        f"ID: {record['id_pay']}\n"
-                        f"Company: {record['telecom_company']}\n"
-                        f"Channel: {record['description']}\n"
-                        f"Required: {record['subscription_count']}\n"
-                        f"Price: {context.user_data['price']}"
-                )
-            except Exception as e:
-                logger.error(f"User notification failed: {str(e)}")
+            # Notify user with pric
+            if NOTIFY_USER:
+                try:
+                    await context.bot.send_message(
+                        chat_id=record['added_by'],
+                        text=f"✅ Payment processed!\n"
+                            f"📋 Details:\n"
+                            f"ID: {record['id_pay']}\n"
+                            f"Company: {record['telecom_company']}\n"
+                            f"Channel: {record['description']}\n"
+                            f"Required: {record['subscription_count']}\n"
+                            f"Price: {context.user_data['price']}"
+                    )
+                except Exception as e:
+                    logger.error(f"User notification failed: {str(e)}")
             
             await update.message.reply_text(
                 "✅ Processing complete!",
