@@ -157,7 +157,7 @@ def get_allowed_links(telegram_id: int) -> list:
                     FROM links l
                     LEFT JOIN user_link_status uls 
                         ON l.id = uls.link_id AND uls.telegram_id = %s
-                    WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s
+                    WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s AND COALESCE(l.is_verify, FALSE) = TRUE
                     ORDER BY l.id DESC
                 """
                 cursor.execute(query, (telegram_id, allow_link,))
@@ -290,13 +290,15 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         keyboard = [
             ["👋 Start", "📝 Register"],
             ["📋 Profile", "🔍 View Links"],
-            ["💵 Withdraw", "Educational video 📹"],
-            ["SUPPORT", "Help"]
+            ["💵 Withdraw", "Help"],
+            # ["💵 Withdraw", "Educational video 📹"],
+            # ["SUPPORT", "Help"]
         ] if not user_lang.startswith('ar') else [
             ["بدء 👋", "تسجيل الدخول 📝"],
             ["الملف الشخصي 📋", "عرض المهام 🔍"],
-            ["سحب الأرباح 💵", "فيديو تعليمي 📹"],
-            ["الدعم", "مساعدة"]
+            ["سحب الأرباح 💵", "الدعم"],
+            # ["سحب الأرباح 💵", "فيديو تعليمي 📹"],
+            # ["الدعم", "مساعدة"]
         ]
         menu_text = "Choose a command From The Menu Below:" if not user_lang.startswith('ar') else "اختر أمرا من القائمة أدناه"
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -973,11 +975,15 @@ async def handle_text_commands(update: Update, context: ContextTypes.DEFAULT_TYP
         text = update.message.text
         user_lang = update.effective_user.language_code or 'en'
         command_map = {
-            "👋 Start": "start", "📝 Register": "register", "📋 Profile": "profile", "🔍 View Links": "view_links",
-            "Educational video 📹": "educational_video", "Help": "help",
-            "بدء 👋": "start", "تسجيل الدخول 📝": "register", "الملف الشخصي 📋": "profile", "عرض المهام 🔍": "view_links",
-            "فيديو تعليمي 📹": "educational_video", "مساعدة": "help"
+            "👋 Start": "start", "📝 Register": "register", "📋 Profile": "profile", "🔍 View Links": "view_links", "Help": "help",
+            "بدء 👋": "start", "تسجيل الدخول 📝": "register", "الملف الشخصي 📋": "profile", "عرض المهام 🔍": "view_links", "مساعدة": "help"
         }
+        # command_map = {
+        #     "👋 Start": "start", "📝 Register": "register", "📋 Profile": "profile", "🔍 View Links": "view_links",
+        #     "Educational video 📹": "educational_video", "Help": "help",
+        #     "بدء 👋": "start", "تسجيل الدخول 📝": "register", "الملف الشخصي 📋": "profile", "عرض المهام 🔍": "view_links",
+        #     "فيديو تعليمي 📹": "educational_video", "مساعدة": "help"
+        # }
         action = command_map.get(text)
 
         if action == "start":
@@ -1664,136 +1670,142 @@ async def process_cash_update(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 ### Support Functions
 
-async def start_support_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start a support conversation."""
-    user_lang = update.effective_user.language_code or 'en'
-    user_id = update.effective_user.id
+# async def start_support_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     """Start a support conversation."""
+#     user_lang = update.effective_user.language_code or 'en'
+#     user_id = update.effective_user.id
 
-    # msg = ""
-    # if await block_check(update, context):
-    #     return
-    # if await is_banned(user_id):
-    #     msg = "تم إلغاء وصولك 🚫"
-    if not user_exists(user_id):
-        msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
-    # if msg:
-        await update.message.reply_text(msg)
-        return
+#     # msg = ""
+#     # if await block_check(update, context):
+#     #     return
+#     # if await is_banned(user_id):
+#     #     msg = "تم إلغاء وصولك 🚫"
+#     if not user_exists(user_id):
+#         msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
+#     # if msg:
+#         await update.message.reply_text(msg)
+#         return
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT 1 FROM support WHERE telegram_id = %s AND who_is = %s",
-                    (user_id, "user")
-                )
-                if cursor.fetchone():
-                    msg = (
-                        "⏳ أنت بالفعل أرسلت رسالة للدعم مسبقا يرجى الانتظار حتى يجيب فريق الدعم على رسالتك السابقة ثم بعد ذلك أرسل رسالة جديدة مرة أخرى شكرا لتفهمك."
-                        if user_lang.startswith('ar')
-                        else "⏳ You have already sent a message to support before. Please wait until the support team responds to your previous message and then send a new message again. Thank you for your understanding."
-                    )
-                    await update.message.reply_text(msg)
-                    await show_menu(update, context)
-                    return ConversationHandler.END
+#     try:
+#         with get_db_connection() as conn:
+#             with conn.cursor() as cursor:
+#                 cursor.execute(
+#                     "SELECT 1 FROM support WHERE telegram_id = %s AND who_is = %s",
+#                     (user_id, "user")
+#                 )
+#                 if cursor.fetchone():
+#                     msg = (
+#                         "⏳ أنت بالفعل أرسلت رسالة للدعم مسبقا يرجى الانتظار حتى يجيب فريق الدعم على رسالتك السابقة ثم بعد ذلك أرسل رسالة جديدة مرة أخرى شكرا لتفهمك."
+#                         if user_lang.startswith('ar')
+#                         else "⏳ You have already sent a message to support before. Please wait until the support team responds to your previous message and then send a new message again. Thank you for your understanding."
+#                     )
+#                     await update.message.reply_text(msg)
+#                     await show_menu(update, context)
+#                     return ConversationHandler.END
 
-        keyboard = [["إلغاء ❌" if user_lang.startswith('ar') else "Cancel ❌"]]
-        msg = "📩 يرجى كتابة رسالتك إلى الدعم:" if user_lang.startswith('ar') else "📩 Please write your support message:"
-        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
-        return SUPPORT_MESSAGE
-    except Exception as e:
-        logger.error(f"Support message error: {e}")
-        error_msg = "⚠️ فشل الإرسال للدعم" if user_lang.startswith('ar') else "⚠️ Failed In Support"
-        await update.message.reply_text(error_msg)
-        return ConversationHandler.END
+#         keyboard = [["إلغاء ❌" if user_lang.startswith('ar') else "Cancel ❌"]]
+#         msg = "📩 يرجى كتابة رسالتك إلى الدعم:" if user_lang.startswith('ar') else "📩 Please write your support message:"
+#         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+#         return SUPPORT_MESSAGE
+#     except Exception as e:
+#         logger.error(f"Support message error: {e}")
+#         error_msg = "⚠️ فشل الإرسال للدعم" if user_lang.startswith('ar') else "⚠️ Failed In Support"
+#         await update.message.reply_text(error_msg)
+#         return ConversationHandler.END
 
-async def save_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save the support message to the database."""
-    user_lang = update.effective_user.language_code or 'en'
-    user_id = update.effective_user.id
-    message_text = update.message.text
+# async def save_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     """Save the support message to the database."""
+#     user_lang = update.effective_user.language_code or 'en'
+#     user_id = update.effective_user.id
+#     message_text = update.message.text
 
-    if message_text in ["Cancel ❌", "إلغاء ❌"]:
-        await cancel_support(update, context)
-        return ConversationHandler.END
+#     if message_text in ["Cancel ❌", "إلغاء ❌"]:
+#         await cancel_support(update, context)
+#         return ConversationHandler.END
 
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT email FROM users WHERE telegram_id = %s", (user_id,))
-                email = cursor.fetchone()[0]
-                cursor.execute("""
-                    INSERT INTO support 
-                        (telegram_id, message, user_name, message_date, email, who_is)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (user_id, message_text, update.effective_user.name, datetime.now(), email, "user"))
-                conn.commit()
-                success_msg = (
-                    f"✅ تم إرسال رسالتك إلى الدعم يرجى تفقد إيميلك\n📧 Email: {email}\nسوف يقوم فريق الدعم الخاص بنا بالتواصل معك في أقرب وقت ممكن."
-                    if user_lang.startswith('ar')
-                    else f"✅ Your message has been sent to support. Please check your email.\n{email}\nOur support team will contact you as soon as possible."
-                )
-                await update.message.reply_text(success_msg, reply_markup=ReplyKeyboardRemove())
-                await show_menu(update, context)
-    except Exception as e:
-        logger.error(f"Support message error: {e}")
-        error_msg = "⚠️ فشل إرسال الرسالة" if user_lang.startswith('ar') else "⚠️ Failed to send message"
-        await update.message.reply_text(error_msg)
-    return ConversationHandler.END
+#     try:
+#         with get_db_connection() as conn:
+#             with conn.cursor() as cursor:
+#                 cursor.execute("SELECT email FROM users WHERE telegram_id = %s", (user_id,))
+#                 email = cursor.fetchone()[0]
+#                 cursor.execute("""
+#                     INSERT INTO support 
+#                         (telegram_id, message, user_name, message_date, email, who_is)
+#                     VALUES (%s, %s, %s, %s, %s, %s)
+#                 """, (user_id, message_text, update.effective_user.name, datetime.now(), email, "user"))
+#                 conn.commit()
+#                 success_msg = (
+#                     f"✅ تم إرسال رسالتك إلى الدعم يرجى تفقد إيميلك\n📧 Email: {email}\nسوف يقوم فريق الدعم الخاص بنا بالتواصل معك في أقرب وقت ممكن."
+#                     if user_lang.startswith('ar')
+#                     else f"✅ Your message has been sent to support. Please check your email.\n{email}\nOur support team will contact you as soon as possible."
+#                 )
+#                 await update.message.reply_text(success_msg, reply_markup=ReplyKeyboardRemove())
+#                 await show_menu(update, context)
+#     except Exception as e:
+#         logger.error(f"Support message error: {e}")
+#         error_msg = "⚠️ فشل إرسال الرسالة" if user_lang.startswith('ar') else "⚠️ Failed to send message"
+#         await update.message.reply_text(error_msg)
+#     return ConversationHandler.END
 
-async def cancel_support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel the support request."""
-    user_lang = update.effective_user.language_code or 'en'
-    await update.message.reply_text(
-        "❌ تم إلغاء إرسال الرسالة" if user_lang.startswith('ar') else "❌ Message cancelled",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    await show_menu(update, context)
-    return ConversationHandler.END
+# async def cancel_support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+#     """Cancel the support request."""
+#     user_lang = update.effective_user.language_code or 'en'
+#     await update.message.reply_text(
+#         "❌ تم إلغاء إرسال الرسالة" if user_lang.startswith('ar') else "❌ Message cancelled",
+#         reply_markup=ReplyKeyboardRemove()
+#     )
+#     await show_menu(update, context)
+#     return ConversationHandler.END
+
+
+
+
+
+
 
 ### Educational Video
 
-async def send_educational_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send an educational video to the user."""
-    try:
-        user_lang = update.effective_user.language_code or 'en'
-        user_id = update.effective_user.id
+# async def send_educational_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Send an educational video to the user."""
+#     try:
+#         user_lang = update.effective_user.language_code or 'en'
+#         user_id = update.effective_user.id
 
-        msg = ""
-        if await is_banned(user_id):
-            msg = "تم إلغاء وصولك 🚫"
-        if not user_exists(user_id):
-            msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
-        if msg:
-            await update.message.reply_text(msg)
-            return
+#         msg = ""
+#         if await is_banned(user_id):
+#             msg = "تم إلغاء وصولك 🚫"
+#         if not user_exists(user_id):
+#             msg = "من فضلك قم بالتسجيل أولا للمتابعة ❌"
+#         if msg:
+#             await update.message.reply_text(msg)
+#             return
 
-        video_path = get_random_video()
-        if not video_path or not os.path.exists(video_path):
-            error_msg = "⚠️ الفيديو غير متوفر حالياً" if user_lang.startswith('ar') else "⚠️ Video not available"
-            await update.message.reply_text(error_msg)
-            return
+#         video_path = get_random_video()
+#         if not video_path or not os.path.exists(video_path):
+#             error_msg = "⚠️ الفيديو غير متوفر حالياً" if user_lang.startswith('ar') else "⚠️ Video not available"
+#             await update.message.reply_text(error_msg)
+#             return
 
-        caption = "🎓 فيديو تعليمي" if user_lang.startswith('ar') else "🎓 Educational Video"
-        await context.bot.send_video(chat_id=update.effective_chat.id, video=open(video_path, 'rb'), caption=caption, supports_streaming=True)
-    except Exception as e:
-        logger.error(f"Video sending error: {e}")
-        error_msg = "⚠️ تعذر إرسال الفيديو" if user_lang.startswith('ar') else "⚠️ Couldn't send video"
-        await update.message.reply_text(error_msg)
+#         caption = "🎓 فيديو تعليمي" if user_lang.startswith('ar') else "🎓 Educational Video"
+#         await context.bot.send_video(chat_id=update.effective_chat.id, video=open(video_path, 'rb'), caption=caption, supports_streaming=True)
+#     except Exception as e:
+#         logger.error(f"Video sending error: {e}")
+#         error_msg = "⚠️ تعذر إرسال الفيديو" if user_lang.startswith('ar') else "⚠️ Couldn't send video"
+#         await update.message.reply_text(error_msg)
 
-def get_random_video() -> str:
-    """Get a random video from the videos folder."""
-    try:
-        video_dir = "user_educational_videos"
-        if not os.path.exists(video_dir):
-            return None
-        videos = [f for f in os.listdir(video_dir) if f.endswith(('.mp4', '.mov', '.avi'))]
-        if not videos:
-            return None
-        return os.path.join(video_dir, random.choice(videos))
-    except Exception as e:
-        logger.error(f"Error getting video: {e}")
-        return None
+# def get_random_video() -> str:
+#     """Get a random video from the videos folder."""
+#     try:
+#         video_dir = "user_educational_videos"
+#         if not os.path.exists(video_dir):
+#             return None
+#         videos = [f for f in os.listdir(video_dir) if f.endswith(('.mp4', '.mov', '.avi'))]
+#         if not videos:
+#             return None
+#         return os.path.join(video_dir, random.choice(videos))
+#     except Exception as e:
+#         logger.error(f"Error getting video: {e}")
+#         return None
 
 ### Cancellation Handlers
 
@@ -1877,21 +1889,21 @@ def main() -> None:
           # <-- Add this line
     )
 
-    support_conv = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Regex(r'^SUPPORT$|^الدعم$'), start_support_conversation)
-        ],
-        states={
-            SUPPORT_MESSAGE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_message),
-                CommandHandler('cancel', cancel_support),
-                MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_support)
-            ]
-        },
-        fallbacks=[CommandHandler('cancel', cancel_support)],
-        allow_reentry=True,
-          # <-- Add this line
-    )
+    # support_conv = ConversationHandler(
+    #     entry_points=[
+    #         MessageHandler(filters.Regex(r'^SUPPORT$|^الدعم$'), start_support_conversation)
+    #     ],
+    #     states={
+    #         SUPPORT_MESSAGE: [
+    #             MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_message),
+    #             CommandHandler('cancel', cancel_support),
+    #             MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_support)
+    #         ]
+    #     },
+    #     fallbacks=[CommandHandler('cancel', cancel_support)],
+    #     allow_reentry=True,
+    #       # <-- Add this line
+    # )
 
     withdrawal_conv = ConversationHandler(
         entry_points=[
@@ -1921,9 +1933,9 @@ def main() -> None:
         CommandHandler('profile', profile_command),
         CommandHandler('viewlinks', view_links),
         conv_handler,
-        support_conv,
+        # support_conv,
         withdrawal_conv,
-        MessageHandler(filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'), send_educational_video),
+        # MessageHandler(filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'), send_educational_video),
         MessageHandler(filters.Regex(r'^Help$|^مساعدة$'), help_us),
         CallbackQueryHandler(handle_submit_callback, pattern=r"^submit_\d+$"),
         CallbackQueryHandler(handle_done_callback, pattern=r"^done_\d+$"),
