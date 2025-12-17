@@ -204,10 +204,10 @@ START_MENU_ar = [
 
 MAIN_MENU_OPTIONS = [
     ["Main Menu"],
-    ["🔍 Input Your Instagram Profile URL"],
-    ["📋 My Profile", "My Channels Done"],
-    ["📌 My Channels", "📌 My Channels Accept"],
-    ["🗑 Delete Channel", "Delete Channel accept", "Educational video 📹"]
+    ["🔍 Input Your Instagram Page URL"],
+    ["📋 My Profile", "My Pages Done"],
+    ["📌 My Pages", "📌 My Pages Accept"],
+    ["🗑 Delete Page", "Delete Page accept", "Educational video 📹"]
 ]
 
 MAIN_MENU_OPTIONS_ar = [
@@ -232,10 +232,10 @@ MAIN_MENU_WITH_SUPPORT_ar = [
 
 ADMIN_MENU = [
     ["Start", "👑 Admin Panel"],
-    ["🔍 Input Your Instagram Profile URL"],
-    ["📋 My Profile", "My Channels Done"],
-    ["📌 My Channels", "📌 My Channels Accept"],
-    ["🗑 Delete Channel", "Delete Channel accept"]
+    ["🔍 Input Your Instagram Page URL"],
+    ["📋 My Profile", "My Pages Done"],
+    ["📌 My Pages", "📌 My Pages Accept"],
+    ["🗑 Delete Page", "Delete Page accept"]
 ]
 
 
@@ -507,11 +507,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif text == "الملف الشخصي 📋":
             await profile_command(update, context)
         elif text == "قنواتي التي أدخلتها 📌":
-            await list_channels(update, context)
+            await list_Pages(update, context)
         elif text == "قنواتي التي تم قبولها بعد الدفع 📌":
-            await list_channels_paid(update, context)
+            await list_Pages_paid(update, context)
         elif text == "قنواتي التي تم إنجازها":
-            await list_channels_Done(update, context)
+            await list_Pages_Done(update, context)
         elif text == "حذف قناة 🗑":
             await delete_channel(update, context)
         elif text == "فيديو تعليمي 📹":
@@ -539,17 +539,17 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
         elif text == "Help":
             await help_us(update, context)
-        elif text == "🔍 Input Your Instagram Profile URL":
+        elif text == "🔍 Input Your Instagram Page URL":
             await handle_channel_verification(update, context)
         elif text == "📋 My Profile":
             await profile_command(update, context)
-        elif text == "📌 My Channels":
-            await list_channels(update, context)
-        elif text == "📌 My Channels Accept":
-            await list_channels_paid(update, context)
-        elif text == "My Channels Done":
-            await list_channels_Done(update, context)
-        elif text == "🗑 Delete Channel":
+        elif text == "📌 My Pages":
+            await list_Pages(update, context)
+        elif text == "📌 My Pages Accept":
+            await list_Pages_paid(update, context)
+        elif text == "My Pages Done":
+            await list_Pages_Done(update, context)
+        elif text == "🗑 Delete Page":
             await delete_channel(update, context)
         elif text == "Educational video 📹":
             await send_educational_video(update, context)
@@ -665,8 +665,8 @@ async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 
-async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all submitted channels for the current user with likes count"""
+async def list_Pages_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all submitted Pages for the current user with likes count"""
     user = update.effective_user
     
     # Check if user is banned
@@ -686,7 +686,7 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
         conn = get_conn()
         c = conn.cursor()
         
-        # Get channels with likes count FOR CURRENT USER ONLY
+        # Get Pages with likes count FOR CURRENT USER ONLY
         c.execute("""
             SELECT l.description, l.youtube_link, l.channel_id, l.submission_date,l.subscription_count,
                    COALESCE(k.channel_likes, 0) AS likes_count
@@ -696,16 +696,16 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ORDER BY l.submission_date DESC
         """, (user.id,))  # Make sure user.id is correctly passed
         
-        channels = c.fetchall()
+        Pages = c.fetchall()
         conn.close()
         
-        if not channels:
-            msg = "ليس لدي قنوات تم قبولها يرجى إضافة قنوات أو الدفع للقنوات التي تم إضافتها سابقا📭" if user_lang.startswith('ar') else "📭 You haven't submitted any channels yet or did not paid for them."
+        if not Pages:
+            msg = "ليس لدي قنوات تم قبولها يرجى إضافة قنوات أو الدفع للقنوات التي تم إضافتها سابقا📭" if user_lang.startswith('ar') else "📭 You haven't submitted any Pages yet or did not paid for them."
             await update.message.reply_text(msg)
             return
             
-        response = ["📋 Your Submitted Channels:"]
-        for idx, (description, youtube_link, channel_id, submission_date, subscription_count, likes) in enumerate(channels, 1):
+        response = ["📋 Your Submitted Pages:"]
+        for idx, (description, youtube_link, channel_id, submission_date, subscription_count, likes) in enumerate(Pages, 1):
             if user_lang.startswith('ar'):
                 response.append(
                     f"{idx}. {description}\n"
@@ -720,7 +720,7 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 response.append(
                     f"{idx}. {description}\n"
                     f"🔗 {youtube_link}\n"
-                    f"🆔 Channel ID: {channel_id}\n"
+                    f"🆔 Page ID: {channel_id}\n"
                     f"📅 Submitted: {submission_date}\n"
                     f"❤️ Required followers: {subscription_count}\n"
                     f"❤️ Likes: {likes}\n"
@@ -736,14 +736,14 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(message)
 
     except Exception as e:
-        logger.error(f"List channels error: {str(e)}")
-        msg = " حدث خطأ أثناء إضافة القناة ❌" if user_lang.startswith('ar') else "❌ Error retrieving your channels"
+        logger.error(f"List Pages error: {str(e)}")
+        msg = " حدث خطأ أثناء إضافة القناة ❌" if user_lang.startswith('ar') else "❌ Error retrieving your Pages"
         await update.message.reply_text(msg)
 
 
 
-async def list_channels_Done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all submitted channels for the current user with likes count"""
+async def list_Pages_Done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all submitted Pages for the current user with likes count"""
     user = update.effective_user
     
     # Check if user is banned
@@ -763,23 +763,23 @@ async def list_channels_Done(update: Update, context: ContextTypes.DEFAULT_TYPE)
         conn = get_conn()
         c = conn.cursor()
         
-        # Get channels with likes count FOR CURRENT USER ONLY
+        # Get Pages with likes count FOR CURRENT USER ONLY
         c.execute("""
             SELECT channel_name, url , channel_id, subscription_count, channel_likes FROM likes
             WHERE user_id = %s AND status = %s
             ORDER BY id DESC
         """, (user.id,True,))  # Make sure user.id is correctly passed
         
-        channels = c.fetchall()
+        Pages = c.fetchall()
         conn.close()
         
-        if not channels:
-            msg = "ليس لدي قنوات تم قبولها يرجى إضافة قنوات أو الدفع للقنوات التي تم إضافتها سابقا📭" if user_lang.startswith('ar') else "📭 You haven't submitted any channels yet or did not paid for them."
+        if not Pages:
+            msg = "ليس لدي قنوات تم قبولها يرجى إضافة قنوات أو الدفع للقنوات التي تم إضافتها سابقا📭" if user_lang.startswith('ar') else "📭 You haven't submitted any Pages yet or did not paid for them."
             await update.message.reply_text(msg)
             return
         
-        response = ["📋 Your Submitted Channels:"]
-        for idx, (channel_name, url, channel_id, subscription_count, channel_likes) in enumerate(channels, 1):
+        response = ["📋 Your Submitted Pages:"]
+        for idx, (channel_name, url, channel_id, subscription_count, channel_likes) in enumerate(Pages, 1):
             if user_lang.startswith('ar'):
                 response.append(
                     f"{idx}. {channel_name}\n"
@@ -793,7 +793,7 @@ async def list_channels_Done(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 response.append(
                     f"{idx}. {channel_name}\n"
                     f"🔗 {url}\n"
-                    f"🆔 Channel ID: {channel_id}\n"
+                    f"🆔 Page ID: {channel_id}\n"
                     f"❤️ Description Count {subscription_count}\n"
                     f"❤️ Likes: {channel_likes}\n"
                     f"{'-'*40}"
@@ -808,8 +808,8 @@ async def list_channels_Done(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(message)
 
     except Exception as e:
-        logger.error(f"List channels error: {str(e)}")
-        msg = " حدث خطأ أثناء إضافة القناة ❌" if user_lang.startswith('ar') else "❌ Error retrieving your channels"
+        logger.error(f"List Pages error: {str(e)}")
+        msg = " حدث خطأ أثناء إضافة القناة ❌" if user_lang.startswith('ar') else "❌ Error retrieving your Pages"
         await update.message.reply_text(msg)
 
 
@@ -847,14 +847,14 @@ async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "❌ صيغة رابط انستغرام غير صحيحة.\n"
                     "✅ مثال صحيح:\n"
                     "https://www.instagram.com/username/\n"
-                    "🔸 الرجاء إدخال رابط حساب (Profile) وليس رابط منشور/ريل."
+                    "🔸 الرجاء إدخال رابط حساب (Page) وليس رابط منشور/ريل."
                 )
             else:
                 msg = (
                     "❌ Invalid Instagram URL format.\n"
                     "✅ Example:\n"
                     "https://www.instagram.com/username/\n"
-                    "🔸 Please send a Profile URL (not a post/reel link)."
+                    "🔸 Please send a Page URL (not a post/reel link)."
                 )
             await update.message.reply_text(msg)
             return CHANNEL_URL  # allow retry
@@ -867,12 +867,12 @@ async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE
         try:
             c = conn.cursor()
 
-            # Limit: max 10 active channels per user (same logic as handle_channel_verification)
+            # Limit: max 10 active Pages per user (same logic as handle_channel_verification)
             c.execute("SELECT COUNT(*) FROM links_success WHERE added_by = %s", (user.id,))
             row = c.fetchone()
             current_count = int(row[0]) if row and row[0] is not None else 0
             if current_count >= 10:
-                msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of channels please wait for end one channel"
+                msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of Pages please wait for end one channel"
                 await update.message.reply_text(msg)
                 return ConversationHandler.END
 
@@ -917,7 +917,7 @@ async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE
                 hint = (
                     "ℹ️ هذا الحساب تم إدخاله سابقاً، وسيتم استخدام نفس معرف القناة مرة أخرى." 
                     if user_lang.startswith('ar')
-                    else "ℹ️ This account was submitted before. The same channel ID will be reused."
+                    else "ℹ️ This account was submitted before. The same Page ID will be reused."
                 )
                 await update.message.reply_text(hint)
 
@@ -945,7 +945,7 @@ async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE
             conn.close()
 
     except Exception as e:
-        logger.error(f"Instagram profile processing error: {str(e)}")
+        logger.error(f"Instagram Page processing error: {str(e)}")
         msg = "حدث خطأ غير متوقع يرجى إعادة المحاولة لاحقا ❌" if user_lang.startswith('ar') else "❌ An error occurred. Please try again."
         await update.message.reply_text(msg, reply_markup=await get_menu2(user_lang, user.id))
         return ConversationHandler.END
@@ -1032,8 +1032,8 @@ def filter_non_arabic_words(text: str, url: str) -> str:
 
 
 # ========== ADDITIONAL FUNCTIONS ==========
-async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all submitted channels for the current user with likes count"""
+async def list_Pages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all submitted Pages for the current user with likes count"""
     user = update.effective_user
     
     # Check if user is banned
@@ -1053,7 +1053,7 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_conn()
         c = conn.cursor()
         
-        # Get channels with likes count FOR CURRENT USER ONLY
+        # Get Pages with likes count FOR CURRENT USER ONLY
         c.execute("""
             SELECT id, description, youtube_link, channel_id, submission_date, id_pay
             FROM links_success
@@ -1061,17 +1061,17 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ORDER BY submission_date DESC
         """, (user.id,))  # Make sure user.id is correctly passed
         
-        channels = c.fetchall()
+        Pages = c.fetchall()
         keyboard = []
         conn.close()
         
-        if not channels:
-            msg = " ليس لدي قنوات تمت إضافتها بعد 📭" if user_lang.startswith('ar') else "📭 You haven't submitted any channels yet"
+        if not Pages:
+            msg = " ليس لدي قنوات تمت إضافتها بعد 📭" if user_lang.startswith('ar') else "📭 You haven't submitted any Pages yet"
             await update.message.reply_text(msg)
             return
             
-        # response = ["📋 Your Submitted Channels:"]
-        # for idx, (name, url, channel_id, date, likes) in enumerate(channels, 1):
+        # response = ["📋 Your Submitted Pages:"]
+        # for idx, (name, url, channel_id, date, likes) in enumerate(Pages, 1):
         #     if user_lang.startswith('ar'):
         #         response.append(
         #             f"{idx}. {name}\n"
@@ -1099,7 +1099,7 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # else:
         #     await update.message.reply_text(message)
 
-        for channel in channels:
+        for channel in Pages:
             id, description, youtube_link, channel_id, submission_date, id_pay = channel
             
             # English format: ID | Short Description | Payment
@@ -1118,12 +1118,12 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        message_text = "📋 Your Channels:" if user_lang != 'ar' else "📋 قنواتك:"
+        message_text = "📋 Your Pages:" if user_lang != 'ar' else "📋 قنواتك:"
         await update.message.reply_text(message_text, reply_markup=reply_markup)
         
     except Exception as e:
-        logger.error(f"List channels error: {str(e)}")
-        error_msg = "❌ Error retrieving channels" if user_lang != 'ar' else "❌ خطأ في استرجاع القنوات"
+        logger.error(f"List Pages error: {str(e)}")
+        error_msg = "❌ Error retrieving Pages" if user_lang != 'ar' else "❌ خطأ في استرجاع القنوات"
         await update.message.reply_text(error_msg)
     finally:
         conn.close()
@@ -1380,7 +1380,7 @@ async def handle_channel_verification(update: Update, context: ContextTypes.DEFA
         result = c.fetchone()
         re = result[0]
         if result[0] < 10:
-            msg = " من فضلك أدخل رابط حساب انستغرام للتحقق والمتابعة 🔗" if user_lang.startswith('ar') else "🔗 Please input your Instagram profile URL:"
+            msg = " من فضلك أدخل رابط حساب انستغرام للتحقق والمتابعة 🔗" if user_lang.startswith('ar') else "🔗 Please input your Instagram Page URL:"
             main_btn   = "القائمة الرئيسية" if user_lang.startswith('ar') else "Main Menu"
 
             await update.message.reply_text(
@@ -1390,7 +1390,7 @@ async def handle_channel_verification(update: Update, context: ContextTypes.DEFA
             return CHANNEL_URL
 
         else:
-            msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of channels please wait for end one channel"
+            msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of Pages please wait for end one Page"
             await update.message.reply_text(msg)
             return ConversationHandler.END
     except psycopg2.Error as e:
@@ -1414,7 +1414,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             ["🚫 Ban Client", "✅ UnBan Client"],
             ["🚫 Ban User", "✅ UnBan User"],
-            ["حذف قناة 🗑", "🗑 Delete  All Channels"], # Updated buttons
+            ["حذف قناة 🗑", "🗑 Delete  All Pages"], # Updated buttons
             ["🔙 Main Menu"]
         ]
         await update.message.reply_text(
@@ -1427,7 +1427,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             ["🚫 Ban Client", "✅ UnBan Client"],
             ["🚫 Ban User", "✅ UnBan User"],
-            ["🗑 Delete Channel", "🗑 Delete  All Channels"], # Updated buttons
+            ["🗑 Delete Page", "🗑 Delete  All Pages"], # Updated buttons
             ["🔙 Main Menu"]
         ]
         await update.message.reply_text(
@@ -1451,7 +1451,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         msg = " أمر غير معروف يرجى إعادة المحاولة ⚠️" if user_lang.startswith('ar') else "⚠️ An error occurred. Please try again."
         await update.message.reply_text(msg,reply_markup=await get_menu(user_lang,update.effective_user.id))
         
-# ========== ADMIN DELETE CHANNELS ==========
+# ========== ADMIN DELETE Pages ==========
 async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only channel deletion flow"""
     user = update.effective_user
@@ -1468,7 +1468,7 @@ async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # if str(user.id) != ADMIN_TELEGRAM_ID:
     #     await update.message.reply_text("🚫 Access denied!")
     #     return ConversationHandler.END
-    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
+    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Page URL to delete:"
     await update.message.reply_text(msg)
     return "AWAIT_CHANNEL_URL"
 
@@ -1488,7 +1488,7 @@ async def delete_channel_accept(update: Update, context: ContextTypes.DEFAULT_TY
     # if str(user.id) != ADMIN_TELEGRAM_ID:
     #     await update.message.reply_text("🚫 Access denied!")
     #     return ConversationHandler.END
-    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
+    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Page URL to delete:"
     await update.message.reply_text(msg)
     return "AWAIT_CHANNEL_URL_ACCEPT"
 
@@ -1503,14 +1503,14 @@ async def confirm_delete_accept(update: Update, context: ContextTypes.DEFAULT_TY
         result = c.fetchone()
         
         if not result:
-            msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Channel not found"
+            msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Page not found"
             await update.message.reply_text(msg)
             return ConversationHandler.END
 
         channel_name = result[0]
         c.execute("SELECT id FROM links WHERE youtube_link = %s and added_by = %s", (url, update.effective_user.id,))
         result_id = c.fetchone()
-        msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Channel not found"
+        msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Page not found"
         if not result_id:
             await update.message.reply_text(msg)
             return ConversationHandler.END
@@ -1526,7 +1526,7 @@ async def confirm_delete_accept(update: Update, context: ContextTypes.DEFAULT_TY
             )
         else:
             await update.message.reply_text(
-                f"✅ Channel deleted:\n"
+                f"✅ Page deleted:\n"
                 f"📛 Name: {channel_name}\n"
                 f"🔗 URL: {url}"
             )
@@ -1544,14 +1544,14 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute("SELECT description FROM links_success WHERE youtube_link = %s and added_by = %s", (url,update.effective_user.id,))
         result = c.fetchone()
         if not result:
-            msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Channel not found"
+            msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Page not found"
             await update.message.reply_text(msg)
             return ConversationHandler.END
 
         channel_name = result[0]
         c.execute("SELECT id FROM links_success WHERE youtube_link = %s and added_by = %s", (url, update.effective_user.id,))
         result_id = c.fetchone()
-        msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Channel not found"
+        msg = " عذرا القناة غير موجودة لحذفها ❌" if user_lang.startswith('ar') else "❌ Page not found"
         if not result_id:
             await update.message.reply_text(msg)
             return ConversationHandler.END
@@ -1567,7 +1567,7 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                f"✅ Channel deleted:\n"
+                f"✅ Page deleted:\n"
                 f"📛 Name: {channel_name}\n"
                 f"🔗 URL: {url}"
             )
@@ -1585,7 +1585,7 @@ async def delete_channel_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("🚫 Access denied!")
         return ConversationHandler.END
 
-    await update.message.reply_text("Enter Channel URL to delete:")
+    await update.message.reply_text("Enter Page URL to delete:")
     return "AWAIT_CHANNEL_URL_ADMIN"
 
 # Step 2: Receive the Channel URL and prompt for the adder
@@ -1593,7 +1593,7 @@ async def receive_channel_url_admin(update: Update, context: ContextTypes.DEFAUL
     """Store the channel URL and prompt for the adder."""
     # Save the channel URL in user_data for later retrieval
     context.user_data["channel_url"] = update.message.text.strip()
-    await update.message.reply_text("And enter the 'adder' (the user who added the channel):")
+    await update.message.reply_text("And enter the 'adder' (the user who added the Page):")
     return "AWAIT_ADDER"
 
 # Step 3: Receive the adder and confirm deletion
@@ -1603,7 +1603,7 @@ async def confirm_delete_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     url = context.user_data.get("channel_url")
     
     if not url:
-        await update.message.reply_text("Channel URL not found. Aborting deletion.")
+        await update.message.reply_text("Page URL not found. Aborting deletion.")
         return ConversationHandler.END
 
     conn = get_conn()
@@ -1612,21 +1612,21 @@ async def confirm_delete_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         c.execute("SELECT description FROM links WHERE youtube_link = %s and adder = %s", (url, adder))
         result = c.fetchone()
         if not result:
-            await update.message.reply_text("❌ Channel not found")
+            await update.message.reply_text("❌ Page not found")
             return ConversationHandler.END
             
         channel_name = result[0]
         c.execute("SELECT id FROM links WHERE youtube_link = %s and adder = %s", (url, adder,))
         result_id = c.fetchone()
         if not result_id:
-            await update.message.reply_text("❌ Channel not found")
+            await update.message.reply_text("❌ Page not found")
             return ConversationHandler.END
         
         # c.execute("DELETE FROM user_link_status WHERE link_id = %s", (result_id_for_link,))
         c.execute("DELETE FROM links WHERE youtube_link = %s and adder = %s", (url, adder))
         conn.commit()
         await update.message.reply_text(
-            f"✅ Channel deleted:\n"
+            f"✅ Page deleted:\n"
             f"📛 Name: {channel_name}\n"
             f"🔗 URL: {url}"
             f"👤 ADDER: {adder}"
@@ -2108,7 +2108,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
 
         # Success message
         success_msg = (
-            f"✅ Instagram account registered successfully!\n\n"
+            f"✅ Instagram Page registered successfully!\n\n"
             f"📛 Name: {channel_data.get('channel_name')}\n"
             f"🆔 ID: {channel_data.get('channel_id')}\n"
             f"🔗 URL: {channel_data.get('url')}\n"
@@ -2116,7 +2116,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
             f"Important note: If the link is incorrect or fake, it will be automatically deleted even if payment has been made, as this violates company policy. You must carefully check the link, delete it if it is incorrect, and re-enter the correct link before making a payment. Thank you.\n"
             # f"🏢 Telecom Company: N/A"
         ) if user_lang != 'ar' else (
-            f"✅ تمت عملية إضافة الحساب بنجاح تام\n\n"
+            f"✅ تمت عملية إضافة صفحة الانستغرام بنجاح تام\n\n"
             f"📛 أسم الحساب: {channel_data.get('channel_name')}\n"
             f"🆔 معرف القناة: {channel_data.get('channel_id')}\n"
             f"🔗 رابط الحساب: {channel_data.get('url')}\n"
@@ -2215,7 +2215,7 @@ async def handle_payment_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     if not channel_id_db:
-        error_msg = "❌ Channel not selected" if user_lang != 'ar' else "❌ لم يتم اختيار قناة"
+        error_msg = "❌ Page not selected" if user_lang != 'ar' else "❌ لم يتم اختيار قناة"
         await update.message.reply_text(error_msg)
         return ConversationHandler.END
     # Validate numeric input
@@ -2274,7 +2274,7 @@ async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         channel_data = c.fetchone()
         
         if not channel_data:
-            await query.message.reply_text("❌ Channel not found")
+            await query.message.reply_text("❌ Page not found")
             return ConversationHandler.END
             
         description = channel_data
@@ -2287,7 +2287,7 @@ async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         
         message_text = (
             # f"📋 Channel Details:\n"
-            f"📛 Channel Name: {escape_markdown(description)}\n\n"
+            f"📛 Page Name: {escape_markdown(description)}\n\n"
             f"Please enter payment ID or Press Cancel ❌ For Abort:"
             if user_lang != 'ar' else 
             # f"📋 تفاصيل القناة:\n"
@@ -2308,7 +2308,7 @@ async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         # Delete original message with inline keyboard
         await query.message.delete()
     except Exception as e:
-        logger.error(f"Channel button error: {str(e)}")
+        logger.error(f"Page button error: {str(e)}")
         await query.message.reply_text("❌ Error processing request")
         return ConversationHandler.END
         
@@ -2543,14 +2543,14 @@ def main() -> None:
         admin_conv = ConversationHandler(
             entry_points=[
                 # Allow pasting Instagram profile URL directly (no menu button required)
-                MessageHandler(filters.Regex(r"^🗑 Delete Channel"), delete_channel),
+                MessageHandler(filters.Regex(r"^🗑 Delete Page"), delete_channel),
                 MessageHandler(filters.Regex(r"^Start$"), start),
                 MessageHandler(filters.Regex(r"^📋 My Profile$"), profile_command),
-                MessageHandler(filters.Regex(r"^📌 My Channels$"), list_channels),
-                MessageHandler(filters.Regex(r"^📌 My Channels Accept$"), list_channels_paid),
-                MessageHandler(filters.Regex(r"^My Channels Done$"), list_channels_Done),
-                MessageHandler(filters.Regex(r"^Delete Channel accept$"), delete_channel_accept),
-                MessageHandler(filters.Regex(r"^🗑 Delete  All Channels$"), delete_channel_admin),
+                MessageHandler(filters.Regex(r"^📌 My Pages$"), list_Pages),
+                MessageHandler(filters.Regex(r"^📌 My Pages Accept$"), list_Pages_paid),
+                MessageHandler(filters.Regex(r"^My Pages Done$"), list_Pages_Done),
+                MessageHandler(filters.Regex(r"^Delete Page accept$"), delete_channel_accept),
+                MessageHandler(filters.Regex(r"^🗑 Delete  All Pages$"), delete_channel_admin),
                 MessageHandler(filters.Regex(r"^🚫 Ban Client$"), ban_client),
                 MessageHandler(filters.Regex(r"^✅ UnBan Client$"), unban_client),
                 MessageHandler(filters.Regex(r"^🚫 Ban User$"), ban_user),
@@ -2587,9 +2587,9 @@ def main() -> None:
                 # Allow pasting Instagram profile URL directly (no menu button required)
                 MessageHandler(filters.Regex(r"^📝 Register$"), handle_registration),
                 MessageHandler(filters.Regex(r"^📋 My Profile$"), profile_command),
-                MessageHandler(filters.Regex(r"^🔍 Input Your Instagram Profile URL$"), handle_channel_verification),
-                MessageHandler(filters.Regex(r"^🗑 Delete Channel$"), delete_channel),
-                MessageHandler(filters.Regex(r"^Delete Channel accept$"), delete_channel_accept),
+                MessageHandler(filters.Regex(r"^🔍 Input Your Instagram Page URL$"), handle_channel_verification),
+                MessageHandler(filters.Regex(r"^🗑 Delete Page$"), delete_channel),
+                MessageHandler(filters.Regex(r"^Delete Page accept$"), delete_channel_accept),
                 MessageHandler(filters.Regex(r"^حذف قناة مقبولة$"), delete_channel_accept),
                 MessageHandler(filters.Regex(r"^تسجيل الدخول 📝$"), handle_registration),
                 MessageHandler(filters.Regex(r"^الملف الشخصي 📋$"), profile_command),
@@ -2664,8 +2664,8 @@ def main() -> None:
             CommandHandler("uc", unban_client),
             CommandHandler("bu", ban_user),
             CommandHandler("uu", unban_user),
-            CommandHandler("mychannels", list_channels),
-            CommandHandler("mychannels_paid", list_channels_paid)
+            CommandHandler("myPages", list_Pages),
+            CommandHandler("myPages_paid", list_Pages_paid)
         ]
 
         # ========== BAN CHECK WRAPPER ==========
