@@ -40,7 +40,7 @@ async def is_admin(user_id: int) -> bool:
     conn = db_pool.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM admins WHERE admins_id = %s", (user_id,))
+            cur.execute("SELECT 1 FROM support_admins WHERE telegram_id = %s", (user_id,))
             return bool(cur.fetchone())
     except Exception as e:
         logger.error(f"Admin check error: {e}")
