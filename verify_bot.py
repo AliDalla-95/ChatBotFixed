@@ -215,7 +215,7 @@ async def approve_user(telegram_id: int, admin_id: int, admin_name: str) -> bool
                 UPDATE users
                 SET is_verified = TRUE,
                     verification_pending = FALSE,
-                    verified_by = %s
+                    verified_by = %s,
                     verified_at = NOW()
                 WHERE telegram_id = %s
                   AND is_banned = FALSE

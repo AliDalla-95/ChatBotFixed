@@ -233,14 +233,14 @@ async def handle_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         # Create dictionary with column names as keys
-        context.user_data['record'] = dict(zip(columns, record))
-        # context.user_data['record'] = record
+        record_dict = dict(zip(columns, record))
+        context.user_data['record'] = record_dict
         
         await update.message.reply_text(
             f"Confirm processing:\n\n"
-            f"Payment ID: {record['id_pay']}\n"
-            f"Company: {record['telecom_company']}\n"
-            f"Channel: {record['description']}\n",
+            f"Payment ID: {record_dict['id_pay']}\n"
+            f"Company: {record_dict['telecom_company']}\n"
+            f"Channel: {record_dict['description']}\n",
             reply_markup=ReplyKeyboardMarkup([["✅ Confirm", "Cancel ❌"]], resize_keyboard=True)
         )
         return AWAIT_CONFIRMATION
