@@ -1,5 +1,10 @@
+# #region agent log
+import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:top","message":"script started importing","data":{},"timestamp":__import__('time').time()})+'\n')
+# #endregion
 import logging
 import re
+import hashlib
+from urllib.parse import urlparse, parse_qs, unquote
 import sqlite3
 import random
 import smtplib
@@ -26,8 +31,6 @@ import sys
 from pathlib import Path
 import psutil
 from telegram.error import Conflict
-from googleapiclient.errors import HttpError
-from googleapiclient.discovery import build
 import warnings
 import psycopg2
 import psycopg2.pool
@@ -39,9 +42,126 @@ from telegram.warnings import PTBUserWarning
 # Keep PTB warnings visible
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
+
+# ========== INSTAGRAM HELPERS ==========
+# We only *parse* Instagram links locally (no external API calls).
+# Goal:
+# - Extract username from the provided Instagram URL
+# - Generate a deterministic channel_id for that username (so the same link/username always yields the same channel_id)
+
+INSTAGRAM_RESERVED_PATHS = {
+    "p", "reel", "tv", "stories", "explore", "accounts", "about", "developer", "help",
+    "graphql", "oauth", "api", "tags", "direct", "privacy", "terms", "press", "web",
+    "support", "challenge", "emailsignup", "login", "signup",
+    # App-deep-link variants sometimes appear in shared URLs (handled explicitly)
+}
+
+def extract_instagram_username(raw_input: str):
+    """Extract Instagram username from a profile URL.
+
+    Accepted examples:
+      - https://www.instagram.com/username/
+      - http://instagram.com/username
+      - instagram.com/username?utm_source=...
+      - https://m.instagram.com/username/
+      - https://www.instagram.com/stories/username/123...
+    Returns:
+      username (lowercased) or None if invalid/unsupported.
+    """
+    if not raw_input:
+        return None
+
+    s = raw_input.strip()
+
+    # If the user forgot the scheme, add it so urlparse works correctly
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', s):
+        s = "https://" + s
+
+    try:
+        parsed = urlparse(s)
+    except Exception:
+        return None
+
+    host = (parsed.netloc or "").lower()
+    # strip port if any
+    host = host.split(":")[0]
+
+    if not host:
+        return None
+
+    # Handle Instagram redirect-wrapper links like:
+    #   https://l.instagram.com/?u=<encoded_profile_url>
+    if host == "l.instagram.com":
+        try:
+            qs = parse_qs(parsed.query or "")
+            target = (qs.get("u") or [None])[0]
+            if target:
+                return extract_instagram_username(unquote(target))
+        except Exception:
+            return None
+        return None
+
+    # Allow Instagram/IG short domains (including subdomains)
+    if not (host.endswith("instagram.com") or host.endswith("instagr.am") or host.endswith("ig.me")):
+        return None
+
+    # Take first non-empty path segment
+    parts = [p for p in (parsed.path or "").split("/") if p]
+    if not parts:
+        return None
+
+    first = parts[0].lower()
+
+    # ig.me/m/<username> (Instagram deep-link/share)
+    if host.endswith("ig.me"):
+        if first in ("m", "u", "_u"):
+            if len(parts) < 2:
+                return None
+            username = parts[1]
+        else:
+            username = parts[0]
+    # /stories/<username>/...
+    elif first == "stories":
+        if len(parts) < 2:
+            return None
+        username = parts[1]
+    # /_u/<username>/... or /u/<username>/...
+    elif first in ("_u", "u"):
+        if len(parts) < 2:
+            return None
+        username = parts[1]
+    else:
+        # Reject non-profile paths (posts, reels, etc.)
+        if first in INSTAGRAM_RESERVED_PATHS:
+            return None
+        username = parts[0]
+
+    username = username.strip().lstrip("@").strip()
+    # Instagram usernames: letters, digits, underscore, dot (max 30)
+    if not re.fullmatch(r"[A-Za-z0-9._]{1,30}", username):
+        return None
+
+    return username.lower()
+
+def canonical_instagram_profile_url(username: str) -> str:
+    """Return canonical Instagram profile URL."""
+    u = (username or "").strip().lstrip("@").lower()
+    return f"https://www.instagram.com/{u}/"
+
+def generate_instagram_channel_id(username: str) -> str:
+    """Generate deterministic channel_id for an Instagram username.
+
+    We use SHA-256 and keep it short & stable:
+    - Prefix: IG
+    - 22 hex chars from sha256 -> total length 24 (similar to YouTube channel_id length)
+    """
+    u = (username or "").strip().lstrip("@").lower()
+    digest = hashlib.sha256(u.encode("utf-8")).hexdigest()
+    return "IG" + digest[:22]
+
+
 # ========== CONFIGURATION ==========admin
 TELEGRAM_TOKEN = "7861338140:AAG3w1f7UBcwKpdYh0ipfLB3nMZM3sLasP4"
-YOUTUBE_API_KEY = "AIzaSyCH0lUUlI-u1ziHsHiSl8aTC2J0nFU2l2Q"
 ADMIN_TELEGRAM_ID = "6106281772"  # Get this from @userinfobot
 DATABASE_NAME = "Test.db"
 
@@ -84,7 +204,7 @@ START_MENU_ar = [
 
 MAIN_MENU_OPTIONS = [
     ["Main Menu"],
-    ["🔍 Input Your YouTube URL Channel"],
+    ["🔍 Input Your Instagram Profile URL"],
     ["📋 My Profile", "My Channels Done"],
     ["📌 My Channels", "📌 My Channels Accept"],
     ["🗑 Delete Channel", "Delete Channel accept", "Educational video 📹"]
@@ -92,7 +212,7 @@ MAIN_MENU_OPTIONS = [
 
 MAIN_MENU_OPTIONS_ar = [
     ["القائمة الرئيسية"],
-    ["أدخل رابط القناة للتحقق منه 🔍"],
+    ["أدخل رابط حساب انستغرام 🔍"],
     ["الملف الشخصي 📋", "قنواتي التي تم إنجازها"],
     ["قنواتي التي أدخلتها 📌", "قنواتي التي تم قبولها بعد الدفع 📌"],
     ["حذف قناة 🗑", "حذف قناة مقبولة", "فيديو تعليمي 📹"]
@@ -112,7 +232,7 @@ MAIN_MENU_WITH_SUPPORT_ar = [
 
 ADMIN_MENU = [
     ["Start", "👑 Admin Panel"],
-    ["🔍 Input Your YouTube URL Channel"],
+    ["🔍 Input Your Instagram Profile URL"],
     ["📋 My Profile", "My Channels Done"],
     ["📌 My Channels", "📌 My Channels Accept"],
     ["🗑 Delete Channel", "Delete Channel accept"]
@@ -382,7 +502,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
         elif text == "مساعدة":
             await help_us(update, context)
-        elif text == "أدخل رابط القناة للتحقق منه 🔍":
+        elif text == "أدخل رابط حساب انستغرام 🔍":
             await handle_channel_verification(update, context)
         elif text == "الملف الشخصي 📋":
             await profile_command(update, context)
@@ -419,7 +539,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
         elif text == "Help":
             await help_us(update, context)
-        elif text == "🔍 Input Your YouTube URL Channel":
+        elif text == "🔍 Input Your Instagram Profile URL":
             await handle_channel_verification(update, context)
         elif text == "📋 My Profile":
             await profile_command(update, context)
@@ -592,7 +712,7 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"🔗 {youtube_link}\n"
                     f"🆔 معرف القناة: {channel_id}\n"
                     f"📅 تاريخ إضافتها: {submission_date}\n"
-                    f"❤️ المطلوب: {subscription_count}\n"
+                    f"❤️ المطلوب: {subscription_count} متابع\n"
                     f"❤️ عدد الاشتراكات: {likes}\n"
                     f"{'-'*40}"
                 )
@@ -602,7 +722,7 @@ async def list_channels_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"🔗 {youtube_link}\n"
                     f"🆔 Channel ID: {channel_id}\n"
                     f"📅 Submitted: {submission_date}\n"
-                    f"❤️ Required: {subscription_count}\n"
+                    f"❤️ Required followers: {subscription_count}\n"
                     f"❤️ Likes: {likes}\n"
                     f"{'-'*40}"
                 )
@@ -694,112 +814,112 @@ async def list_channels_Done(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 
-# ========== YOUTUBE CHANNEL VERIFICATION ==========
+# ========== INSTAGRAM PROFILE VERIFICATION ==========
+
 async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process YouTube channel URL with duplicate validation and enhanced checks"""
+    """Process Instagram profile URL (no external API calls).
+
+    - Extract Instagram username from the provided link
+    - Generate deterministic channel_id from the username (same username => same channel_id)
+    - Ask the user for the required follower count
+    """
+    user = update.effective_user
+    user_lang = update.effective_user.language_code or 'en'
+
     try:
-        user = update.effective_user
-        url = update.message.text.strip()
-        user_lang = update.effective_user.language_code or 'en'
-
-        # Validate URL format first
-        if not re.match(r'^(https?://)?(www\.)?youtube\.com/', url, re.IGNORECASE):
-            await update.message.reply_text("❌ Invalid YouTube URL format. Please try again.")
-            return ConversationHandler.END
-
-        # YouTube API initialization with cache
-        class MemoryCache:
-            def __init__(self):
-                self._cache = {}
-            def get(self, url):
-                return self._cache.get(url)
-            def set(self, url, content):
-                self._cache[url] = content
-
-        youtube = build(
-            "youtube",
-            "v3",
-            developerKey=YOUTUBE_API_KEY,
-            cache=MemoryCache(),
-            cache_discovery=False
-        )
-
-        # Extract channel identifier
-        patterns = [
-            (r'/channel/([a-zA-Z0-9_-]{24})', 'id'),  # Channel ID
-            (r'/c/([a-zA-Z0-9_-]+)', 'custom'),       # Custom URL
-            (r'/user/([a-zA-Z0-9_-]+)', 'user'),       # Legacy username
-            (r'/@([a-zA-Z0-9_-]+)', 'handle')          # Channel handle
-        ]
-
-        channel_id = None
-        channel_name = None
-        identifier_type = None
-
-        for pattern, id_type in patterns:
-            match = re.search(pattern, url)
-            if match:
-                identifier = match.group(1)
-                identifier_type = id_type
-                try:
-                    if id_type == 'id':
-                        response = youtube.channels().list(
-                            part="snippet",
-                            id=identifier
-                        ).execute()
-                    else:
-                        response = youtube.search().list(
-                            part="snippet",
-                            q=identifier,
-                            type="channel",
-                            maxResults=1
-                        ).execute()
-
-                    if response.get('items'):
-                        if id_type == 'id':
-                            channel = response['items'][0]
-                        else:
-                            channel_id = response['items'][0]['id']['channelId']
-                            channel = youtube.channels().list(
-                                part="snippet",
-                                id=channel_id
-                            ).execute()['items'][0]
-
-                        channel_id = channel['id']
-                        channel_name = channel['snippet']['title']
-                        channel_name = re.sub(r'[\\*_`~#\[\](){}|>+=!-]', '', channel_name)
-                        break
-
-                except HttpError as e:
-                    logger.error(f"YouTube API Errorw: {str(e)}")
-                    await update.message.reply_text("❌ Error verifying channel. Please try later.")
-                    return ConversationHandler.END
-
-        if not channel_id or not channel_name:
-            msg = " لايمكن التحقق من رابط قناة اليوتيوب يجى إدخال الرابط الصحيح وإعادة المحاولة ❌" if user_lang.startswith('ar') else "❌ Could not verify YouTube channel. Check URL and try again."
+        # Safety checks (so it works سواء ضغط زر القائمة أو لصق الرابط مباشرة)
+        if await is_banned(user.id):
+            msg = "🚫 تم إلغاء وصولك " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
             await update.message.reply_text(msg)
             return ConversationHandler.END
-        # Database checks
+
+        if not await is_registered(user.id):
+            msg = " من فضلك قم بالتسجيل أولا ❌" if user_lang.startswith('ar') else "❌ Please Register First."
+            await update.message.reply_text(msg)
+            return ConversationHandler.END
+
+        raw_input = (update.message.text or "").strip()
+
+        username = extract_instagram_username(raw_input)
+        if not username:
+            if user_lang.startswith('ar'):
+                msg = (
+                    "❌ صيغة رابط انستغرام غير صحيحة.\n"
+                    "✅ مثال صحيح:\n"
+                    "https://www.instagram.com/username/\n"
+                    "🔸 الرجاء إدخال رابط حساب (Profile) وليس رابط منشور/ريل."
+                )
+            else:
+                msg = (
+                    "❌ Invalid Instagram URL format.\n"
+                    "✅ Example:\n"
+                    "https://www.instagram.com/username/\n"
+                    "🔸 Please send a Profile URL (not a post/reel link)."
+                )
+            await update.message.reply_text(msg)
+            return CHANNEL_URL  # allow retry
+
+        # Extracted from link
+        channel_name = username  # Instagram username (best available without external APIs)
+        url = canonical_instagram_profile_url(username)  # canonical URL to keep it consistent in DB
+
         conn = get_conn()
         try:
             c = conn.cursor()
-            # Check existing submissions
-            c.execute("""
-                SELECT channel_id, description 
-                FROM links_success 
-                WHERE added_by = %s 
-                AND (channel_id = %s OR description = %s)
-            """, (user.id, channel_id, channel_name))
-            existing = c.fetchone()
 
-            if existing:
-                existing_id, existing_name = existing
-                message = []
-                if existing_id == channel_id and existing_name == channel_name:
-                    msg = " يوجد مسبقا أسم قناة ومعرف آي دي مرتبطان بهذا الرابط يرجى التحقق أولا ثم إعادة المحاولة ⚠️" if user_lang.startswith('ar') else "⚠️ You already submitted this Channel ID and Channel Name With A Deferent URL Remove URL and Continue"
-                    message.append(msg)
-                await update.message.reply_text("\n".join(message))
+            # Limit: max 10 active channels per user (same logic as handle_channel_verification)
+            c.execute("SELECT COUNT(*) FROM links_success WHERE added_by = %s", (user.id,))
+            row = c.fetchone()
+            current_count = int(row[0]) if row and row[0] is not None else 0
+            if current_count >= 10:
+                msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of channels please wait for end one channel"
+                await update.message.reply_text(msg)
                 return ConversationHandler.END
+
+            # Resolve channel_id (stable):
+            # 1) If this Instagram URL/username exists in DB already, reuse the stored channel_id
+            # 2) Otherwise generate deterministic ID from username
+            # This guarantees that adding the same account many times yields the same channel_id.
+            existing_id = None
+
+            # Prefer matching by canonical URL first (case-insensitive)
+            c.execute("SELECT channel_id FROM links WHERE LOWER(youtube_link) = LOWER(%s) LIMIT 1", (url,))
+            row = c.fetchone()
+            if not row:
+                c.execute("SELECT channel_id FROM links_success WHERE LOWER(youtube_link) = LOWER(%s) LIMIT 1", (url,))
+                row = c.fetchone()
+
+            # Fallback to matching by stored description if URL differs in old rows
+            if not row:
+                c.execute("SELECT channel_id FROM links WHERE LOWER(description) = LOWER(%s) LIMIT 1", (channel_name,))
+                row = c.fetchone()
+            if not row:
+                c.execute("SELECT channel_id FROM links_success WHERE LOWER(description) = LOWER(%s) LIMIT 1", (channel_name,))
+                row = c.fetchone()
+
+            if row and row[0]:
+                existing_id = str(row[0]).strip()
+
+            channel_id = existing_id or generate_instagram_channel_id(username)
+
+            # Optional hint if the user is repeating the same URL (but we still allow it)
+            c.execute(
+                """
+                SELECT COUNT(*)
+                FROM links_success
+                WHERE added_by = %s AND LOWER(youtube_link) = LOWER(%s)
+                """,
+                (user.id, url)
+            )
+            cnt = c.fetchone()
+            already_submitted_same_url = int(cnt[0]) if cnt and cnt[0] is not None else 0
+            if already_submitted_same_url > 0:
+                hint = (
+                    "ℹ️ هذا الحساب تم إدخاله سابقاً، وسيتم استخدام نفس معرف القناة مرة أخرى." 
+                    if user_lang.startswith('ar')
+                    else "ℹ️ This account was submitted before. The same channel ID will be reused."
+                )
+                await update.message.reply_text(hint)
 
             context.user_data['channel_data'] = {
                 'url': url,
@@ -807,31 +927,28 @@ async def process_channel_url(update: Update, context: ContextTypes.DEFAULT_TYPE
                 'channel_name': channel_name
             }
 
-            
-            # Create subscription keyboard
+            # Create follower keyboard
             if user_lang.startswith('ar'):
-                keyboard = [["100 مشترك", "1000 مشترك"], ["إلغاء ❌"]]
-                msg = "اختر عدد المشتركين المطلوب:"
+                keyboard = [["100 متابع", "1000 متابع"], ["إلغاء ❌"]]
+                msg = "اختر عدد المتابعين المطلوب:"
             else:
-                keyboard = [["100 Subscribers", "1000 Subscribers"], ["Cancel ❌"]]
-                msg = "Choose the desired subscriber count:"
-                
+                keyboard = [["100 Followers", "1000 Followers"], ["Cancel ❌"]]
+                msg = "Choose the desired follower count:"
+
             await update.message.reply_text(
                 msg,
                 reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
             )
             return SUBSCRIPTION_CHOICE
-            
+
         finally:
             conn.close()
 
     except Exception as e:
-        logger.error(f"Channel processing errors: {str(e)}")
-        msg = " حدث خطأ غير متوقع يرجى إعادة المحاولة لاحقا ❌" if user_lang.startswith('ar') else "❌ An error occurred. Please try again"
-        await update.message.reply_text(msg,reply_markup=await get_menu2(user_lang,user.id))
-    return ConversationHandler.END
-
-
+        logger.error(f"Instagram profile processing error: {str(e)}")
+        msg = "حدث خطأ غير متوقع يرجى إعادة المحاولة لاحقا ❌" if user_lang.startswith('ar') else "❌ An error occurred. Please try again."
+        await update.message.reply_text(msg, reply_markup=await get_menu2(user_lang, user.id))
+        return ConversationHandler.END
 
 
 # def filter_non_arabic_words(text, url):    
@@ -1263,9 +1380,15 @@ async def handle_channel_verification(update: Update, context: ContextTypes.DEFA
         result = c.fetchone()
         re = result[0]
         if result[0] < 10:
-            msg = " من فضلك أدخل رابط القناة للتحقق منه والمتابعة 🔗" if user_lang.startswith('ar') else "🔗 Please Input your YouTube channel URL:"
-            await update.message.reply_text(msg)
+            msg = " من فضلك أدخل رابط حساب انستغرام للتحقق والمتابعة 🔗" if user_lang.startswith('ar') else "🔗 Please input your Instagram profile URL:"
+            main_btn   = "القائمة الرئيسية" if user_lang.startswith('ar') else "Main Menu"
+
+            await update.message.reply_text(
+                msg,
+                reply_markup=ReplyKeyboardMarkup([[main_btn]], resize_keyboard=True)
+            )
             return CHANNEL_URL
+
         else:
             msg = "🚫 لديك عدد كبير من القنوات يرجى الانتظار لحين اكتمال مهمة قناة" if user_lang.startswith('ar') else "🚫 You have alot of channels please wait for end one channel"
             await update.message.reply_text(msg)
@@ -1345,7 +1468,7 @@ async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # if str(user.id) != ADMIN_TELEGRAM_ID:
     #     await update.message.reply_text("🚫 Access denied!")
     #     return ConversationHandler.END
-    msg = "من فضلك أدخل رابط القناة لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
+    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
     await update.message.reply_text(msg)
     return "AWAIT_CHANNEL_URL"
 
@@ -1365,7 +1488,7 @@ async def delete_channel_accept(update: Update, context: ContextTypes.DEFAULT_TY
     # if str(user.id) != ADMIN_TELEGRAM_ID:
     #     await update.message.reply_text("🚫 Access denied!")
     #     return ConversationHandler.END
-    msg = "من فضلك أدخل رابط القناة لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
+    msg = "من فضلك أدخل رابط الحساب لحذفها" if user_lang.startswith('ar') else "Enter Channel URL to delete:"
     await update.message.reply_text(msg)
     return "AWAIT_CHANNEL_URL_ACCEPT"
 
@@ -1399,7 +1522,7 @@ async def confirm_delete_accept(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(
                 f"✅ تم حذف القناة بنجاح :\n"
                 f"📛 أسم القناة : {channel_name}\n"
-                f"🔗 رابط القناة: {url}"
+                f"🔗 رابط الحساب: {url}"
             )
         else:
             await update.message.reply_text(
@@ -1440,7 +1563,7 @@ async def confirm_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"✅ تم حذف القناة بنجاح :\n"
                 f"📛 أسم القناة : {channel_name}\n"
-                f"🔗 رابط القناة: {url}"
+                f"🔗 رابط الحساب: {url}"
             )
         else:
             await update.message.reply_text(
@@ -1908,14 +2031,14 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
         return ConversationHandler.END
     conn = get_conn()
     # Validate subscription choice
-    if text in ["100 Subscribers", "100 مشترك"]:
+    if text in ["100 Followers", "100 متابع"]:
         subscription_count = 100
         # price = 6
-    elif text in ["1000 Subscribers", "1000 مشترك"]:
+    elif text in ["1000 Followers", "1000 متابع"]:
         subscription_count = 1000
         # price = 60
     else:
-        error_msg = "❌ Invalid choice. Please select 100 or 1000." if user_lang == 'en' else "❌ اختيار غير صحيح. يرجى اختيار 100 أو 1000"
+        error_msg = "❌ Invalid choice. Please select 100 or 1000 followers." if user_lang == 'en' else "❌ اختيار غير صحيح. يرجى اختيار 100 أو 1000 متابع"
         await update.message.reply_text(error_msg, reply_markup=await get_menu2(user_lang, user.id))
         return SUBSCRIPTION_CHOICE
     try:
@@ -1925,7 +2048,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
                 if result_price:
                     price = result_price[0]
                 else:
-                    error_msg = "❌ Invalid choice. Please select 100 or 1000." if user_lang == 'en' else "❌ اختيار غير صحيح. يرجى اختيار 100 أو 1000"
+                    error_msg = "❌ Invalid choice. Please select 100 or 1000 followers." if user_lang == 'en' else "❌ اختيار غير صحيح. يرجى اختيار 100 أو 1000 متابع"
                     await update.message.reply_text(error_msg, reply_markup=await get_menu2(user_lang, user.id))
                     return SUBSCRIPTION_CHOICE 
     finally:
@@ -1985,18 +2108,18 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
 
         # Success message
         success_msg = (
-            f"✅ Channel registered successfully!\n\n"
+            f"✅ Instagram account registered successfully!\n\n"
             f"📛 Name: {channel_data.get('channel_name')}\n"
             f"🆔 ID: {channel_data.get('channel_id')}\n"
             f"🔗 URL: {channel_data.get('url')}\n"
-            f"❤️ Requested subscribers: {subscription_count}\n"
+            f"❤️ Requested followers: {subscription_count}\n"
             # f"🏢 Telecom Company: N/A"
         ) if user_lang != 'ar' else (
-            f"✅ تمت عملية إضافة القناة بنجاح تام\n\n"
-            f"📛 أسم القناة: {channel_data.get('channel_name')}\n"
+            f"✅ تمت عملية إضافة الحساب بنجاح تام\n\n"
+            f"📛 أسم الحساب: {channel_data.get('channel_name')}\n"
             f"🆔 معرف القناة: {channel_data.get('channel_id')}\n"
-            f"🔗 رابط القناة: {channel_data.get('url')}\n"
-            f"❤️ الاشتراكات المطلوبة: {subscription_count}\n"
+            f"🔗 رابط الحساب: {channel_data.get('url')}\n"
+            f"❤️ المتابعين المطلوبين: {subscription_count}\n"
             # f"🏢 شركة الاتصالات: لم يتم تحديد شركة اتصالات للدفع"
         )
 
@@ -2166,7 +2289,7 @@ async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_T
             f"Please enter payment ID or Press Cancel ❌ For Abort:"
             if user_lang != 'ar' else 
             # f"📋 تفاصيل القناة:\n"
-            f"📛 أسم القناة: {escape_markdown(description)}\n\n"
+            f"📛 أسم الحساب: {escape_markdown(description)}\n\n"
             f"الرجاء إدخال رقم عملية الدفع أو اضغط إلغاء ❌ لإلغاء العملية:"
         )
         
@@ -2357,6 +2480,11 @@ async def cancel_support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(msg, reply_markup=await get_menu(user_lang, user.id))
     return ConversationHandler.END
 
+async def route_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # نفّذ نفس منطق الأزرار الموجود عندك
+    await menu_handler(update, context)
+    return ConversationHandler.END
+
 
         
 
@@ -2364,6 +2492,9 @@ def main() -> None:
     """Configure and start the bot with comprehensive error handling"""
     pid_file = Path("bot.pid")
     logger = logging.getLogger(__name__)
+    # #region agent log
+    import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:main","message":"main() started","data":{"pid_exists":pid_file.exists()},"timestamp":__import__('time').time()})+'\n')
+    # #endregion
 
     try:
         # ========== PID FILE HANDLING ==========
@@ -2375,6 +2506,9 @@ def main() -> None:
                     raise ValueError("Empty PID file")
                 
                 old_pid = int(content)
+                # #region agent log
+                import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:pid_check","message":"checking old PID","data":{"old_pid":old_pid,"exists":psutil.pid_exists(old_pid)},"timestamp":__import__('time').time()})+'\n')
+                # #endregion
                 if psutil.pid_exists(old_pid):
                     print("⛔ Another bot instance is already running!")
                     print("❗ Use 'kill %d' or restart your computer" % old_pid)
@@ -2397,12 +2531,16 @@ def main() -> None:
             sys.exit(1)
 
         # ========== BOT INITIALIZATION ==========
+        # #region agent log
+        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H2","location":"client.py:bot_init","message":"building application","data":{},"timestamp":__import__('time').time()})+'\n')
+        # #endregion
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
         # ========== HANDLER CONFIGURATION ==========
         # Admin conversation handler
         admin_conv = ConversationHandler(
             entry_points=[
+                # Allow pasting Instagram profile URL directly (no menu button required)
                 MessageHandler(filters.Regex(r"^🗑 Delete Channel"), delete_channel),
                 MessageHandler(filters.Regex(r"^Start$"), start),
                 MessageHandler(filters.Regex(r"^📋 My Profile$"), profile_command),
@@ -2414,37 +2552,49 @@ def main() -> None:
                 MessageHandler(filters.Regex(r"^🚫 Ban Client$"), ban_client),
                 MessageHandler(filters.Regex(r"^✅ UnBan Client$"), unban_client),
                 MessageHandler(filters.Regex(r"^🚫 Ban User$"), ban_user),
-                MessageHandler(filters.Regex(r"^✅ UnBan User$"), unban_user)
+                MessageHandler(filters.Regex(r"^✅ UnBan User$"), unban_user),
+                MessageHandler(filters.Regex(r"(?i)(?:https?://)?(?:[a-z0-9-]+\.)*(?:instagram\.com|instagr\.am|ig\.me)/"),process_channel_url),
             ],
             states={
                 "AWAIT_CHANNEL_URL": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete)],
                 "AWAIT_CHANNEL_URL_ACCEPT": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_accept)],
                 "AWAIT_CHANNEL_URL_ADMIN": [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_channel_url_admin)],
                 "AWAIT_ADDER": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_admin)],
-                CHANNEL_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_url)],
+                CHANNEL_URL: [
+                    # 1) لو ضغط زر إلغاء / قائمة / أي زر من القائمة، اخرج من الحالة
+                    MessageHandler(
+                        filters.Regex(r"^(Main Menu)$"),
+                        route_back_to_menu
+                    ),
+
+                    # 2) غير ذلك: اعتبره رابط وحاول معالجته
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_url),
+                ],
                 AWAIT_PAYMENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
                 SUBSCRIPTION_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_subscription_choice)],
                 COMPANY_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, company_handler)],
             },
             fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
-            per_message=True,  # <-- Add this line
+            per_message=False,
             map_to_parent={ConversationHandler.END: ConversationHandler.END}
         )
 
         # Main conversation handler
         conv_handler = ConversationHandler(
             entry_points=[
+                # Allow pasting Instagram profile URL directly (no menu button required)
                 MessageHandler(filters.Regex(r"^📝 Register$"), handle_registration),
                 MessageHandler(filters.Regex(r"^📋 My Profile$"), profile_command),
-                MessageHandler(filters.Regex(r"^🔍 Input Your YouTube URL Channel$"), handle_channel_verification),
+                MessageHandler(filters.Regex(r"^🔍 Input Your Instagram Profile URL$"), handle_channel_verification),
                 MessageHandler(filters.Regex(r"^🗑 Delete Channel$"), delete_channel),
                 MessageHandler(filters.Regex(r"^Delete Channel accept$"), delete_channel_accept),
                 MessageHandler(filters.Regex(r"^حذف قناة مقبولة$"), delete_channel_accept),
                 MessageHandler(filters.Regex(r"^تسجيل الدخول 📝$"), handle_registration),
                 MessageHandler(filters.Regex(r"^الملف الشخصي 📋$"), profile_command),
-                MessageHandler(filters.Regex(r"^أدخل رابط القناة للتحقق منه 🔍$"), handle_channel_verification),
+                MessageHandler(filters.Regex(r"^أدخل رابط حساب انستغرام 🔍$"), handle_channel_verification),
                 MessageHandler(filters.Regex(r"^حذف قناة 🗑$"), delete_channel),
                 CallbackQueryHandler(channel_button_handler, pattern=r"^channel_"),
+                MessageHandler(filters.Regex(r"(?i)(?:https?://)?(?:[a-z0-9-]+\.)*(?:instagram\.com|instagr\.am|ig\.me)/"),process_channel_url),
             ],
             states={
                 EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, email_handler)],
@@ -2458,7 +2608,16 @@ def main() -> None:
                 ],
                 # FULLNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, name_handler)],
                 # COUNTRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, country_handler)],
-                CHANNEL_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_url)],
+                CHANNEL_URL: [
+                    # 1) لو ضغط زر إلغاء / قائمة / أي زر من القائمة، اخرج من الحالة
+                    MessageHandler(
+                        filters.Regex(r"^(Main Menu)$"),
+                        route_back_to_menu
+                    ),
+
+                    # 2) غير ذلك: اعتبره رابط وحاول معالجته
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_url),
+                ],
                 "AWAIT_CHANNEL_URL": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete)],
                 "AWAIT_CHANNEL_URL_ACCEPT": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_accept)],
                 AWAIT_PAYMENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
@@ -2472,10 +2631,7 @@ def main() -> None:
                     ConversationHandler.END
                 ))
             ],
-            per_message=True,  # <-- Add this line
-            # map_to_parent={ConversationHandler.END: ConversationHandler.END},
-            # per_chat=True,
-            # per_message=False,
+            per_message=False,
         )
         
         support_conv = ConversationHandler(
@@ -2489,7 +2645,7 @@ def main() -> None:
                 MessageHandler(filters.Regex(r'^(Cancel ❌|إلغاء ❌)$'), cancel_support),
                 CommandHandler("cancel", cancel_support)
             ],
-            per_message=True,  # <-- Add this line
+            per_message=False,
         )
 
         # ========== HANDLER REGISTRATION ==========
@@ -2564,14 +2720,29 @@ def main() -> None:
         application.add_error_handler(error_handler)
 
         # ========== BOT STARTUP ==========
+        # #region agent log
+        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:run_polling","message":"about to run_polling","data":{},"timestamp":__import__('time').time()})+'\n')
+        # #endregion
         logger.info("Starting bot...")
-        application.run_polling(
-            poll_interval=2,
-            timeout=30,
-            drop_pending_updates=True
-        )
+        try:
+            application.run_polling(
+                poll_interval=2,
+                timeout=30,
+                drop_pending_updates=True
+            )
+        except Exception as poll_err:
+            # #region agent log
+            import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:run_polling_error","message":"run_polling exception","data":{"error":str(poll_err),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
+            # #endregion
+            raise
+        # #region agent log
+        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:after_polling","message":"run_polling finished normally","data":{},"timestamp":__import__('time').time()})+'\n')
+        # #endregion
 
     except Conflict as e:
+        # #region agent log
+        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:conflict","message":"Conflict exception","data":{"error":str(e)},"timestamp":__import__('time').time()})+'\n')
+        # #endregion
         logger.critical(f"Bot conflict: {str(e)}")
         print("""
         🔌 Connection conflict detected!
@@ -2581,6 +2752,9 @@ def main() -> None:
         3. Verify your bot token is unique
         """)
     except Exception as e:
+        # #region agent log
+        import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:exception","message":"fatal exception","data":{"error":str(e),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
+        # #endregion
         logger.critical(f"Fatal error: {str(e)}", exc_info=True)
     finally:
         # ========== CLEANUP ==========
@@ -2594,4 +2768,7 @@ def main() -> None:
         sqlite3.connect(DATABASE_NAME).close()
 
 if __name__ == "__main__":
+    # #region agent log
+    import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:__main__","message":"about to call main()","data":{},"timestamp":__import__('time').time()})+'\n')
+    # #endregion
     main()
