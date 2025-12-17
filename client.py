@@ -207,7 +207,8 @@ MAIN_MENU_OPTIONS = [
     ["🔍 Input Your Instagram Page URL"],
     ["📋 My Profile", "My Pages Done"],
     ["📌 My Pages", "📌 My Pages Accept"],
-    ["🗑 Delete Page", "Delete Page accept", "Educational video 📹"]
+    ["🗑 Delete Page", "Delete Page accept"]
+    # ["🗑 Delete Page", "Delete Page accept", "Educational video 📹"]
 ]
 
 MAIN_MENU_OPTIONS_ar = [
@@ -215,7 +216,8 @@ MAIN_MENU_OPTIONS_ar = [
     ["أدخل رابط حساب انستغرام 🔍"],
     ["الملف الشخصي 📋", "قنواتي التي تم إنجازها"],
     ["قنواتي التي أدخلتها 📌", "قنواتي التي تم قبولها بعد الدفع 📌"],
-    ["حذف قناة 🗑", "حذف قناة مقبولة", "فيديو تعليمي 📹"]
+    ["حذف قناة 🗑", "حذف قناة مقبولة"]
+    # ["حذف قناة 🗑", "حذف قناة مقبولة", "فيديو تعليمي 📹"]
 ]
 
 MAIN_MENU_WITH_SUPPORT = [
@@ -514,8 +516,8 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await list_Pages_Done(update, context)
         elif text == "حذف قناة 🗑":
             await delete_channel(update, context)
-        elif text == "فيديو تعليمي 📹":
-            await send_educational_video(update, context)
+        # elif text == "فيديو تعليمي 📹":
+        #     await send_educational_video(update, context)
         elif text == "🔙 Main Menu":
             await show_main_menu(update, user)
         elif text == "بدء":
@@ -551,8 +553,8 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await list_Pages_Done(update, context)
         elif text == "🗑 Delete Page":
             await delete_channel(update, context)
-        elif text == "Educational video 📹":
-            await send_educational_video(update, context)
+        # elif text == "Educational video 📹":
+        #     await send_educational_video(update, context)
         elif text == "🔙 Main Menu":
             await show_main_menu(update, user)
         elif text == "Start":
@@ -2319,48 +2321,52 @@ async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 
-async def send_educational_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send educational video to user"""
-    try:
-        user_id = update.effective_user.id
-        user_lang = update.effective_user.language_code or 'en'
+# async def send_educational_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Send educational video to user"""
+#     try:
+#         user_id = update.effective_user.id
+#         user_lang = update.effective_user.language_code or 'en'
         
-        if not await is_registered(user_id):
-            msg = " من فضلك قم بالتسجيل أولا ❌" if user_lang.startswith('ar') else "❌ Please Register First."
-            await update.message.reply_text(msg)
-            return
+#         if not await is_registered(user_id):
+#             msg = " من فضلك قم بالتسجيل أولا ❌" if user_lang.startswith('ar') else "❌ Please Register First."
+#             await update.message.reply_text(msg)
+#             return
         
-        if await is_banned(user_id):
-            msg = "🚫 تم إلغاء وصولك " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
-            await update.message.reply_text(msg)
-            return
+#         if await is_banned(user_id):
+#             msg = "🚫 تم إلغاء وصولك " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
+#             await update.message.reply_text(msg)
+#             return
 
-        # Get random video from database
-        # conn = get_conn()
-        try:
-            video_dir = "client_educational_videos"
-            videos = [f for f in os.listdir(video_dir) if f.endswith(('.mp4', '.mov', '.avi'))]
-            if not videos:
-                raise FileNotFoundError
+#         # Get random video from database
+#         # conn = get_conn()
+#         try:
+#             video_dir = "client_educational_videos"
+#             videos = [f for f in os.listdir(video_dir) if f.endswith(('.mp4', '.mov', '.avi'))]
+#             if not videos:
+#                 raise FileNotFoundError
             
-            file_path = os.path.join(video_dir, random.choice(videos))
-            caption = "🎓 Educational Video" if user_lang != 'ar' else "🎓 فيديو تعليمي"
+#             file_path = os.path.join(video_dir, random.choice(videos))
+#             caption = "🎓 Educational Video" if user_lang != 'ar' else "🎓 فيديو تعليمي"
 
-            await context.bot.send_video(
-                chat_id=update.effective_chat.id,
-                video=open(file_path, 'rb'),
-                caption=caption,
-                supports_streaming=True
-            )
+#             await context.bot.send_video(
+#                 chat_id=update.effective_chat.id,
+#                 video=open(file_path, 'rb'),
+#                 caption=caption,
+#                 supports_streaming=True
+#             )
             
-        except FileNotFoundError:
-            error_msg = "الفيديو غير متوفر حالياً ⚠️" if user_lang.startswith('ar') else "⚠️ Video not available"
-            await update.message.reply_text(error_msg)
+#         except FileNotFoundError:
+#             error_msg = "الفيديو غير متوفر حالياً ⚠️" if user_lang.startswith('ar') else "⚠️ Video not available"
+#             await update.message.reply_text(error_msg)
             
-    except Exception as e:
-        logger.error(f"Video error: {str(e)}")
-        error_msg = "تعذر إرسال الفيديو ⚠️" if user_lang.startswith('ar') else "⚠️ Couldn't send video"
-        await update.message.reply_text(error_msg)
+#     except Exception as e:
+#         logger.error(f"Video error: {str(e)}")
+#         error_msg = "تعذر إرسال الفيديو ⚠️" if user_lang.startswith('ar') else "⚠️ Couldn't send video"
+#         await update.message.reply_text(error_msg)
+
+
+
+
     # finally:
     #     conn.close()
         
@@ -2655,7 +2661,7 @@ def main() -> None:
             CommandHandler("start", start),
             CommandHandler('profile', profile_command),
             conv_handler,
-            MessageHandler(filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'),send_educational_video),
+            # MessageHandler(filters.Regex(r'^(Educational video 📹|فيديو تعليمي 📹)$'),send_educational_video),
             admin_conv,
             support_conv,
             MessageHandler(filters.Regex(r"^👑 Admin Panel$"), handle_admin_panel),
