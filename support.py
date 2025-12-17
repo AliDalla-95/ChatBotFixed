@@ -74,7 +74,11 @@ async def get_pending_requests(page: int = 0, limit: int = REQUESTS_PAGE_SIZE):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, user_id, link_id, channel_name, channel_id, user_name, date
+                SELECT
+                    id, user_id, link_id,
+                    channel_name, channel_id,
+                    user_name, date,
+                    facebook_username, instagram_username
                 FROM requests
                 WHERE locked = FALSE
                 ORDER BY date ASC
@@ -86,6 +90,7 @@ async def get_pending_requests(page: int = 0, limit: int = REQUESTS_PAGE_SIZE):
             return [dict(zip(cols, row)) for row in cur.fetchall()]
     finally:
         db_pool.putconn(conn)
+
 
 
 async def get_pending_requests_count() -> int:
@@ -128,15 +133,16 @@ async def handle_show_requests(update: Update, context: ContextTypes.DEFAULT_TYP
 
             dt = r.get("date")
             dt_str = dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(dt, "strftime") else str(dt)
+            fb = (r.get("facebook_username") or "").strip() or "N/A"
+            ig = (r.get("instagram_username") or "").strip() or "N/A"
 
             text_msg = (
                 f"📌 {r['channel_name']}\n"
                 f"👤 {r['user_name']} (ID: {r['user_id']})\n"
-                f"🔗 Link ID: {r['link_id']}\n"
-                f"🆔 Channel ID: {r['channel_id']}\n"
-                f"🕒 {dt_str}\n"
-                f"📝 User confirmed subscription (no screenshot)."
+                f"📘 Facebook: {fb}\n"
+                f"📸 Instagram: {ig}\n"
             )
+
 
             msg = await context.bot.send_message(
                 chat_id=chat_id,

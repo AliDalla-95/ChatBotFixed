@@ -1274,10 +1274,10 @@ async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Save submission for manual review in the SAME DB that support.py reads (DATABASE_URL)
     try:
-        with get_db_connection() as conn:   # بدل get_test2_db_connection
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
-                channel_id = str(res)          # ✅ res هو channel_id القادم من جدول links
-                channel_name = description     # ✅ استخدم وصف المهمة كاسم للقناة/المهمة
+                channel_id = str(res)
+                channel_name = description
 
                 # prevent duplicate pending requests for same task
                 cur.execute(
@@ -1293,18 +1293,41 @@ async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     await context.bot.send_message(chat_id=chat_id, text=pending)
                     return
 
+                # ✅ Fetch FB + IG from users table
+                cur.execute(
+                    "SELECT facebook_username, instagram_username FROM users WHERE telegram_id=%s",
+                    (user_id,)
+                )
+                row_social = cur.fetchone()
+
+                fb_username = row_social[0] if row_social else None
+                ig_username = row_social[1] if row_social else None
+
+                # ✅ إذا NULL أو فاضي => N/A
+                fb_username = (fb_username or "").strip() or "N/A"
+                ig_username = (ig_username or "").strip() or "N/A"
+
+
                 submission_marker = f"manual:{uuid.uuid4()}"
+
+                # ✅ Insert request with FB + IG
                 cur.execute(
                     """
                     INSERT INTO requests (
                         user_id, user_name,
                         channel_id, channel_name,
                         date, link_id,
-                        locked, image_path
+                        locked, image_path,
+                        facebook_username, instagram_username
                     )
-                    VALUES (%s, %s, %s, %s, NOW(), %s, FALSE, %s)
+                    VALUES (%s, %s, %s, %s, NOW(), %s, FALSE, %s, %s, %s)
                     """,
-                    (user_id, user_name, channel_id, channel_name, link_id, submission_marker)
+                    (
+                        user_id, user_name,
+                        channel_id, channel_name,
+                        link_id, submission_marker,
+                        fb_username, ig_username
+                    )
                 )
             conn.commit()
 
@@ -1316,6 +1339,7 @@ async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         err = "⚠️ خطأ في شبكة النت يرجى إعادة تحميل المهمات" if user_lang.startswith('ar') else "⚠️ Internet/database error, please reload missions"
         await context.bot.send_message(chat_id=chat_id, text=err)
         return
+
 
 
     # Reply to user with the same info message as before
