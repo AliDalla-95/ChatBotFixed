@@ -61,3 +61,9 @@
 {"hypothesisId": "H2", "location": "client.py:bot_init", "message": "building application", "data": {}, "timestamp": 1765947086.238956}
 {"hypothesisId": "H4", "location": "client.py:run_polling", "message": "about to run_polling", "data": {}, "timestamp": 1765947086.282007}
 {"hypothesisId": "H5", "location": "client.py:after_polling", "message": "run_polling finished normally", "data": {}, "timestamp": 1765950350.228083}
+{"hypothesisId": "H3", "location": "client.py:top", "message": "script started importing", "data": {}, "timestamp": 1765950577.8733718}
+{"hypothesisId": "H3", "location": "client.py:__main__", "message": "about to call main()", "data": {}, "timestamp": 1765950578.2901719}
+{"hypothesisId": "H1", "location": "client.py:main", "message": "main() started", "data": {"pid_exists": false}, "timestamp": 1765950578.290329}
+{"hypothesisId": "H2", "location": "client.py:bot_init", "message": "building application", "data": {}, "timestamp": 1765950578.2905369}
+{"hypothesisId": "H4", "location": "client.py:run_polling", "message": "about to run_polling", "data": {}, "timestamp": 1765950578.337474}
+{"hypothesisId": "H5", "location": "client.py:after_polling", "message": "run_polling finished normally", "data": {}, "timestamp": 1765951037.4536471}

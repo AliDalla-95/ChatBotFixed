@@ -2113,6 +2113,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
             f"🆔 ID: {channel_data.get('channel_id')}\n"
             f"🔗 URL: {channel_data.get('url')}\n"
             f"❤️ Requested followers: {subscription_count}\n"
+            f"Important note: If the link is incorrect or fake, it will be automatically deleted even if payment has been made, as this violates company policy. You must carefully check the link, delete it if it is incorrect, and re-enter the correct link before making a payment. Thank you.\n"
             # f"🏢 Telecom Company: N/A"
         ) if user_lang != 'ar' else (
             f"✅ تمت عملية إضافة الحساب بنجاح تام\n\n"
@@ -2120,6 +2121,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
             f"🆔 معرف القناة: {channel_data.get('channel_id')}\n"
             f"🔗 رابط الحساب: {channel_data.get('url')}\n"
             f"❤️ المتابعين المطلوبين: {subscription_count}\n"
+            f"ملاحظة هامة: في حال كان الرابط غير صحيح أو مزيفاً، سيتم حذفه تلقائياً حتى بعد إتمام عملية الدفع، وذلك لمخالفته سياسة الشركة. لذا، يُرجى التحقق من الرابط جيداً، وحذفه إن كان غير صحيح، ثم إدخال الرابط الصحيح قبل إتمام عملية الدفع. شكراً لكم.\n"
             # f"🏢 شركة الاتصالات: لم يتم تحديد شركة اتصالات للدفع"
         )
 
