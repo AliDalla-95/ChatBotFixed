@@ -18,70 +18,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ===== Start logging: save who pressed /start for this bot =====
-BOT_NAME = "Support"
-
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
-
-def _tg_username(u):
-    username = getattr(u, "username", None)
-    return f"@{username}" if username else None
-
-def _tg_full_name(u):
-    # PTB provides .full_name, but keep fallback
-    full = getattr(u, "full_name", None)
-    if full:
-        return full
-    first = getattr(u, "first_name", None)
-    last = getattr(u, "last_name", None)
-    parts = [p for p in [first, last] if p]
-    return " ".join(parts) if parts else None
-
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
-
-def log_bot_start(user):
-    """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO bot_starts (telegram_id, username, full_name, bot_name)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (telegram_id, bot_name)
-                DO UPDATE SET username = EXCLUDED.username,
-                              full_name = EXCLUDED.full_name,
-                              last_seen_at = NOW();
-                """,
-                (int(getattr(user, "id")), _tg_username(user), _tg_full_name(user), BOT_NAME),
-            )
-        conn.commit()
-    except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        logger.error(f"bot_starts log failed: {e}")
-    finally:
-        try:
-            db_pool.putconn(conn)
-        except Exception:
-            pass
-
-
 # Single DB pool (Test DB): requests + users + likes + support tables
 db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL)
 
@@ -114,7 +50,6 @@ async def is_admin(user_id: int) -> bool:
 
 
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    log_bot_start(update.effective_user)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Support System\nChoose an option:",
@@ -575,16 +510,6 @@ async def handle_support_refresh(update: Update, context: ContextTypes.DEFAULT_T
 
 
 def main():
-    # Ensure bot_starts table exists
-    try:
-        _c = db_pool.getconn()
-        try:
-            ensure_bot_starts_table(_c)
-            _c.commit()
-        finally:
-            db_pool.putconn(_c)
-    except Exception as e:
-        logger.error(f"Failed to ensure bot_starts table: {e}")
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", show_menu))

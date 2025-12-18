@@ -2,8 +2,6 @@
 import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:top","message":"script started importing","data":{},"timestamp":__import__('time').time()})+'\n')
 # #endregion
 import logging
-
-import config
 import re
 import hashlib
 from urllib.parse import urlparse, parse_qs, unquote
@@ -163,7 +161,7 @@ def generate_instagram_channel_id(username: str) -> str:
 
 
 # ========== CONFIGURATION ==========admin
-TELEGRAM_TOKEN = config.CLIENT_BOT_TOKEN
+TELEGRAM_TOKEN = "7861338140:AAG3w1f7UBcwKpdYh0ipfLB3nMZM3sLasP4"
 ADMIN_TELEGRAM_ID = "6106281772"  # Get this from @userinfobot
 DATABASE_NAME = "Test.db"
 
@@ -173,70 +171,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-# ===== Start logging: save who pressed /start for this bot =====
-BOT_NAME = "Client"
-
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
-
-def _tg_username(u):
-    username = getattr(u, "username", None)
-    return f"@{username}" if username else None
-
-def _tg_full_name(u):
-    # PTB provides .full_name, but keep fallback
-    full = getattr(u, "full_name", None)
-    if full:
-        return full
-    first = getattr(u, "first_name", None)
-    last = getattr(u, "last_name", None)
-    parts = [p for p in [first, last] if p]
-    return " ".join(parts) if parts else None
-
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
-
-def log_bot_start(user):
-    """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
-    conn = connection_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO bot_starts (telegram_id, username, full_name, bot_name)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (telegram_id, bot_name)
-                DO UPDATE SET username = EXCLUDED.username,
-                              full_name = EXCLUDED.full_name,
-                              last_seen_at = NOW();
-                """,
-                (int(getattr(user, "id")), _tg_username(user), _tg_full_name(user), BOT_NAME),
-            )
-        conn.commit()
-    except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        logger.error(f"bot_starts log failed: {e}")
-    finally:
-        try:
-            connection_pool.putconn(conn)
-        except Exception:
-            pass
-
 
 # ========== UPDATED STATES ==========
 (
@@ -513,7 +447,6 @@ async def is_registered(telegram_id: int) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command with dynamic menu"""
     user = update.effective_user
-    log_bot_start(user)
     user_lang = update.effective_user.language_code or 'en'
     if await is_banned(user.id):
         msg = "🚫 تم إلغاء وصولك " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
@@ -2610,16 +2543,7 @@ def main() -> None:
         import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H2","location":"client.py:bot_init","message":"building application","data":{},"timestamp":__import__('time').time()})+'\n')
         # #endregion
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        # Ensure bot_starts table exists
-        try:
-            _c = connection_pool.getconn()
-            try:
-                ensure_bot_starts_table(_c)
-                _c.commit()
-            finally:
-                connection_pool.putconn(_c)
-        except Exception as e:
-            logger.error(f"Failed to ensure bot_starts table: {e}")
+
         # ========== HANDLER CONFIGURATION ==========
         # Admin conversation handler
         admin_conv = ConversationHandler(

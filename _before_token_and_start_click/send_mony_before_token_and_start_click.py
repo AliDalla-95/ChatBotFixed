@@ -1,7 +1,5 @@
 import logging
 import psycopg2
-
-import config
 from datetime import datetime
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -27,73 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ===== Start logging: save who pressed /start for this bot =====
-BOT_NAME = "SendMoney"
-
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
-
-def _tg_username(u):
-    username = getattr(u, "username", None)
-    return f"@{username}" if username else None
-
-def _tg_full_name(u):
-    # PTB provides .full_name, but keep fallback
-    full = getattr(u, "full_name", None)
-    if full:
-        return full
-    first = getattr(u, "first_name", None)
-    last = getattr(u, "last_name", None)
-    parts = [p for p in [first, last] if p]
-    return " ".join(parts) if parts else None
-
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
-
-def log_bot_start(user):
-    """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
-    conn = connect_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO bot_starts (telegram_id, username, full_name, bot_name)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (telegram_id, bot_name)
-                DO UPDATE SET username = EXCLUDED.username,
-                              full_name = EXCLUDED.full_name,
-                              last_seen_at = NOW();
-                """,
-                (int(getattr(user, "id")), _tg_username(user), _tg_full_name(user), BOT_NAME),
-            )
-        conn.commit()
-    except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        logger.error(f"bot_starts log failed: {e}")
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
 # Configuration
-BOT_TOKEN = config.SEND_MONEY_BOT_TOKEN
-DB_URL = config.DATABASE_URL
+BOT_TOKEN = "8062800182:AAGwnhGinAaa-0oM2El2KMuuf3fu17Mbl_E"
+DB_URL = "postgres://postgres:postgres@localhost:5432/Test"
 ADMIN_IDS = [6936321897, 1130152311, 6106281772, 1021796797, 2050036668, 1322069113]
 PER_PAGE = 5
 
@@ -133,7 +67,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #     message = update
     
     user_id = update.effective_user.id
-    log_bot_start(update.effective_user)
     await is_admins(user_id)
     if is_admins:
         context.user_data.clear()
@@ -465,16 +398,6 @@ def get_withdrawal_detail(wd_id: int):
         logger.error(f"Database error: {e}")
         return None
 
-# Ensure bot_starts table exists
-try:
-    _c = connect_db()
-    try:
-        ensure_bot_starts_table(_c)
-        _c.commit()
-    finally:
-        _c.close()
-except Exception as e:
-    logger.error(f"Failed to ensure bot_starts table: {e}")
 def main():
     """Configure and start the bot"""
     application = ApplicationBuilder().token(BOT_TOKEN).build()
