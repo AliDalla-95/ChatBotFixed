@@ -79,9 +79,9 @@ def _tg_full_name(u):
     parts = [p for p in [first, last] if p]
     return " ".join(parts) if parts else None
 
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
+# def ensure_bot_starts_table(conn):
+#     with conn.cursor() as cur:
+#         cur.execute(BOT_START_TABLE_SQL)
 
 def log_bot_start(user):
     """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
@@ -903,9 +903,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"🏆 Points: {points} points\n"
                 f"💰 Total Withdrawals: {total_withdrawals} points\n\n"
                 f"Your recently completed tasks will be credited as soon as possible, and any task you cancel on your own will have its balance deducted when withdrawing profits\n\n"
-                f"There are tasks that you have subscribed to but did not complete them the first time and a ban mark was placed on you and even if you complete them the second time the ban mark will remain on you and you must be careful when the ban mark reaches number 5 you will be banned for one day and when the ban mark reaches 10 you will be permanently banned from using the bot and then to lift the ban please contact the support team:\n"
+                f"There are tasks that you have Followed to but did not complete them the first time and a ban mark was placed on you and even if you complete them the second time the ban mark will remain on you and you must be careful when the ban mark reaches number 5 you will be banned for one day and when the ban mark reaches 10 you will be permanently banned from using the bot and then to lift the ban please contact the support team:\n"
                 f"Total Blocks to date: {block_num}\n\n"
-                f"Names of channels that have not been completed and must be resubscribed to before they disappear from the to do list:\n{res_name}"
+                f"Names of channels that have not been completed and must be reFollowed to before they disappear from the to do list:\n{res_name}"
             )
             await update.message.reply_text(msg, parse_mode="MarkdownV2")
         else:
@@ -1010,8 +1010,8 @@ async def send_links_page(user_lang: str, chat_id: int, user_id: int, page: int,
                 f"[🔗 Instagram Link]({yt_link})"
             )
             keyboard = [[InlineKeyboardButton(
-                "✅ اشترك ثم اضغط: أنجزت المهمة" if user_lang.startswith('ar')
-                else "✅ Subscribe then press: Done",
+                "✅ تابع الصفحة أو الحساب ثم اضغط: أنجزت المهمة" if user_lang.startswith('ar')
+                else "✅ Follow then press: Done",
                 callback_data=f"submit_{link_id}"
             )]]
             message = await context.bot.send_message(
@@ -1121,7 +1121,7 @@ async def navigate_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 ### Image Submission
 
 async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle task start: ask user to subscribe and then press Done."""
+    """Handle task start: ask user to Follow and then press Done."""
     try:
         user_lang = update.effective_user.language_code or 'en'
         query = update.callback_query
@@ -1177,9 +1177,9 @@ async def handle_submit_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         # Ask for subscription confirmation (no screenshot required)
         text = (
-            f"✅ اشترك في القناة/الحساب الخاص بالمهمة ثم اضغط زر (أنجزت المهمة) هنا:\n{description}"
+            f"✅ اشترك في الصفحة/الحساب الخاص بالمهمة ثم اضغط زر (أنجزت المهمة) هنا:\n{description}"
             if user_lang.startswith('ar')
-            else f"✅ Subscribe to the channel/account for this task, then press (Done) here:\n{description}"
+            else f"✅ Follow to the Page/account for this task, then press (Done) here:\n{description}"
         )
         done_button = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ أنجزت المهمة" if user_lang.startswith('ar') else "✅ Done", callback_data=f"done_{link_id}")
@@ -1412,7 +1412,7 @@ async def handle_done_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "✅ سيتم التحقق من إتمامك للمهمة، وفي حال إتمامها، ستُضاف نقطة +1 إلى نقاطك، وسيتم إضافتها إلى نقاطك في أسرع وقت ممكن. احرص على عدم إلغاء الاشتراك حتى لا تفقد الرصيد عند السحب. في حال عدم إتمام 5 مهمات سيتم حظرك لمدة يوم في المرة الأولى، وفي المرة الثانية سيتم حظرك نهائيًا في حال تكرارها ل10 مهمات. سيتم إبلاغك بالنتيجة. يرجى متابعة ملفك الشخصي، والآن انتقل إلى مهمة أخرى."
         if user_lang.startswith('ar')
         else
-        "✅ Your completion of the task will be verified, and if completed, +1 point will be added to your points, and it will be added to your points as soon as possible. Make sure not to unsubscribe so that you do not lose the balance when withdrawing. If you do not complete 5 tasks, you will be banned for a day the first time, and the second time you will be banned permanently if you repeat it for 10 tasks. You will be informed of the result. Please follow your profile, now move on to another task."
+        "✅ Your completion of the task will be verified, and if completed, +1 point will be added to your points, and it will be added to your points as soon as possible. Make sure not to unFollow so that you do not lose the balance when withdrawing. If you do not complete 5 tasks, you will be banned for a day the first time, and the second time you will be banned permanently if you repeat it for 10 tasks. You will be informed of the result. Please follow your profile, now move on to another task."
     )
     await context.bot.send_message(chat_id=chat_id, text=final_msg)
 
@@ -1428,9 +1428,9 @@ async def handle_unexpected_photo(update: Update, context: ContextTypes.DEFAULT_
     """Photos are no longer required; instruct the user to press Done."""
     user_lang = update.effective_user.language_code or 'en'
     msg = (
-        "📌 لا حاجة لإرسال لقطة شاشة الآن. قم بالاشتراك ثم اضغط زر (✅ أنجزت المهمة) في رسالة المهمة."
+        "📌 لا حاجة لإرسال لقطة شاشة الآن. قم بالمتابعة ثم اضغط زر (✅ أنجزت المهمة) في رسالة المهمة."
         if user_lang.startswith('ar')
-        else "📌 No screenshot is required. Subscribe, then press (✅ Done) in the task message."
+        else "📌 No screenshot is required. Follow, then press (✅ Done) in the task message."
     )
     await update.message.reply_text(msg)
 
@@ -1933,15 +1933,15 @@ def main() -> None:
     db_pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=config.DATABASE_URL)
     test2_db_pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=config.TEST2_DATABASE_URL)
 # Ensure bot_starts table exists (safe to call on every startup)
-try:
-    _c = db_pool.getconn()
-    try:
-        ensure_bot_starts_table(_c)
-        _c.commit()
-    finally:
-        db_pool.putconn(_c)
-except Exception as e:
-    logger.error(f"Failed to ensure bot_starts table: {e}")
+# try:
+#     _c = db_pool.getconn()
+#     try:
+#         ensure_bot_starts_table(_c)
+#         _c.commit()
+#     finally:
+#         db_pool.putconn(_c)
+# except Exception as e:
+#     logger.error(f"Failed to ensure bot_starts table: {e}")
 
     application = ApplicationBuilder().token(config.TOKEN).build()
 

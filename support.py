@@ -48,9 +48,9 @@ def _tg_full_name(u):
     parts = [p for p in [first, last] if p]
     return " ".join(parts) if parts else None
 
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
+# def ensure_bot_starts_table(conn):
+#     with conn.cursor() as cur:
+#         cur.execute(BOT_START_TABLE_SQL)
 
 def log_bot_start(user):
     """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
@@ -114,12 +114,24 @@ async def is_admin(user_id: int) -> bool:
 
 
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1) سجّل أي شخص ضغط /start (سواء أدمن أو لا)
     log_bot_start(update.effective_user)
+
+    # 2) امنع غير الأدمن من رؤية المنيو
+    if not await is_admin(update.effective_user.id):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⛔ هذا البوت مخصص للدعم فقط. لا تملك صلاحية الوصول.",
+        )
+        return
+
+    # 3) أدمن: أظهر المنيو
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Support System\nChoose an option:",
         reply_markup=MAIN_KEYBOARD,
     )
+
 
 
 async def clear_chat(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
@@ -576,15 +588,15 @@ async def handle_support_refresh(update: Update, context: ContextTypes.DEFAULT_T
 
 def main():
     # Ensure bot_starts table exists
-    try:
-        _c = db_pool.getconn()
-        try:
-            ensure_bot_starts_table(_c)
-            _c.commit()
-        finally:
-            db_pool.putconn(_c)
-    except Exception as e:
-        logger.error(f"Failed to ensure bot_starts table: {e}")
+    # try:
+    #     _c = db_pool.getconn()
+    #     try:
+    #         ensure_bot_starts_table(_c)
+    #         _c.commit()
+    #     finally:
+    #         db_pool.putconn(_c)
+    # except Exception as e:
+    #     logger.error(f"Failed to ensure bot_starts table: {e}")
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", show_menu))

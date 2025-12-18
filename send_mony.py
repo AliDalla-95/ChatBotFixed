@@ -57,9 +57,9 @@ def _tg_full_name(u):
     parts = [p for p in [first, last] if p]
     return " ".join(parts) if parts else None
 
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
+# def ensure_bot_starts_table(conn):
+#     with conn.cursor() as cur:
+#         cur.execute(BOT_START_TABLE_SQL)
 
 def log_bot_start(user):
     """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
@@ -466,15 +466,15 @@ def get_withdrawal_detail(wd_id: int):
         return None
 
 # Ensure bot_starts table exists
-try:
-    _c = connect_db()
-    try:
-        ensure_bot_starts_table(_c)
-        _c.commit()
-    finally:
-        _c.close()
-except Exception as e:
-    logger.error(f"Failed to ensure bot_starts table: {e}")
+# try:
+#     _c = connect_db()
+#     try:
+#         ensure_bot_starts_table(_c)
+#         _c.commit()
+#     finally:
+#         _c.close()
+# except Exception as e:
+#     logger.error(f"Failed to ensure bot_starts table: {e}")
 def main():
     """Configure and start the bot"""
     application = ApplicationBuilder().token(BOT_TOKEN).build()

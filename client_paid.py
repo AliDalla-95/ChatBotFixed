@@ -128,7 +128,7 @@ async def is_admins(admins_id: int) -> bool:
     try:
         conn = get_conn()
         c = conn.cursor()
-        c.execute("SELECT admins_name FROM admins WHERE admins_id = %s", (admins_id,))
+        c.execute("SELECT user_name FROM paid_visit WHERE user_id = %s", (admins_id,))
         return bool(c.fetchone())
         # result = c.fetchone()
         # if result:

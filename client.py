@@ -204,9 +204,9 @@ def _tg_full_name(u):
     parts = [p for p in [first, last] if p]
     return " ".join(parts) if parts else None
 
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
+# def ensure_bot_starts_table(conn):
+#     with conn.cursor() as cur:
+#         cur.execute(BOT_START_TABLE_SQL)
 
 def log_bot_start(user):
     """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
@@ -2611,15 +2611,15 @@ def main() -> None:
         # #endregion
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         # Ensure bot_starts table exists
-        try:
-            _c = connection_pool.getconn()
-            try:
-                ensure_bot_starts_table(_c)
-                _c.commit()
-            finally:
-                connection_pool.putconn(_c)
-        except Exception as e:
-            logger.error(f"Failed to ensure bot_starts table: {e}")
+        # try:
+        #     _c = connection_pool.getconn()
+        #     try:
+        #         ensure_bot_starts_table(_c)
+        #         _c.commit()
+        #     finally:
+        #         connection_pool.putconn(_c)
+        # except Exception as e:
+        #     logger.error(f"Failed to ensure bot_starts table: {e}")
         # ========== HANDLER CONFIGURATION ==========
         # Admin conversation handler
         admin_conv = ConversationHandler(
