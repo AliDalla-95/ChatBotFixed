@@ -1,5 +1,5 @@
 # #region agent log
-import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:top","message":"script started importing","data":{},"timestamp":__import__('time').time()})+'\n')
+# import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:top","message":"script started importing","data":{},"timestamp":__import__('time').time()})+'\n')
 # #endregion
 import logging
 
@@ -177,18 +177,18 @@ logger = logging.getLogger(__name__)
 # ===== Start logging: save who pressed /start for this bot =====
 BOT_NAME = "Client"
 
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
+# BOT_START_TABLE_SQL = """
+# CREATE TABLE IF NOT EXISTS bot_starts (
+#     id BIGSERIAL PRIMARY KEY,
+#     telegram_id BIGINT NOT NULL,
+#     username TEXT,
+#     full_name TEXT,
+#     bot_name TEXT NOT NULL,
+#     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     UNIQUE (telegram_id, bot_name)
+# );
+# """
 
 def _tg_username(u):
     username = getattr(u, "username", None)
@@ -2568,7 +2568,7 @@ def main() -> None:
     pid_file = Path("bot.pid")
     logger = logging.getLogger(__name__)
     # #region agent log
-    import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:main","message":"main() started","data":{"pid_exists":pid_file.exists()},"timestamp":__import__('time').time()})+'\n')
+    # import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:main","message":"main() started","data":{"pid_exists":pid_file.exists()},"timestamp":__import__('time').time()})+'\n')
     # #endregion
 
     try:
@@ -2582,7 +2582,7 @@ def main() -> None:
                 
                 old_pid = int(content)
                 # #region agent log
-                import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:pid_check","message":"checking old PID","data":{"old_pid":old_pid,"exists":psutil.pid_exists(old_pid)},"timestamp":__import__('time').time()})+'\n')
+                # import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H1","location":"client.py:pid_check","message":"checking old PID","data":{"old_pid":old_pid,"exists":psutil.pid_exists(old_pid)},"timestamp":__import__('time').time()})+'\n')
                 # #endregion
                 if psutil.pid_exists(old_pid):
                     print("⛔ Another bot instance is already running!")
@@ -2607,7 +2607,7 @@ def main() -> None:
 
         # ========== BOT INITIALIZATION ==========
         # #region agent log
-        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H2","location":"client.py:bot_init","message":"building application","data":{},"timestamp":__import__('time').time()})+'\n')
+        # import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H2","location":"client.py:bot_init","message":"building application","data":{},"timestamp":__import__('time').time()})+'\n')
         # #endregion
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         # Ensure bot_starts table exists
@@ -2805,7 +2805,7 @@ def main() -> None:
 
         # ========== BOT STARTUP ==========
         # #region agent log
-        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:run_polling","message":"about to run_polling","data":{},"timestamp":__import__('time').time()})+'\n')
+        #import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:run_polling","message":"about to run_polling","data":{},"timestamp":__import__('time').time()})+'\n')
         # #endregion
         logger.info("Starting bot...")
         try:
@@ -2816,16 +2816,16 @@ def main() -> None:
             )
         except Exception as poll_err:
             # #region agent log
-            import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:run_polling_error","message":"run_polling exception","data":{"error":str(poll_err),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
+            #import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:run_polling_error","message":"run_polling exception","data":{"error":str(poll_err),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
             # #endregion
             raise
         # #region agent log
-        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:after_polling","message":"run_polling finished normally","data":{},"timestamp":__import__('time').time()})+'\n')
+        #import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:after_polling","message":"run_polling finished normally","data":{},"timestamp":__import__('time').time()})+'\n')
         # #endregion
 
     except Conflict as e:
         # #region agent log
-        import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:conflict","message":"Conflict exception","data":{"error":str(e)},"timestamp":__import__('time').time()})+'\n')
+        #import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H5","location":"client.py:conflict","message":"Conflict exception","data":{"error":str(e)},"timestamp":__import__('time').time()})+'\n')
         # #endregion
         logger.critical(f"Bot conflict: {str(e)}")
         print("""
@@ -2837,7 +2837,7 @@ def main() -> None:
         """)
     except Exception as e:
         # #region agent log
-        import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:exception","message":"fatal exception","data":{"error":str(e),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
+        #import json as _json,traceback as _tb; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H4","location":"client.py:exception","message":"fatal exception","data":{"error":str(e),"traceback":_tb.format_exc()},"timestamp":__import__('time').time()})+'\n')
         # #endregion
         logger.critical(f"Fatal error: {str(e)}", exc_info=True)
     finally:
@@ -2853,6 +2853,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     # #region agent log
-    import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:__main__","message":"about to call main()","data":{},"timestamp":__import__('time').time()})+'\n')
+    #import json as _json; open('/Users/admin/Desktop/ChatBotFixed/.cursor/debug.log','a').write(_json.dumps({"hypothesisId":"H3","location":"client.py:__main__","message":"about to call main()","data":{},"timestamp":__import__('time').time()})+'\n')
     # #endregion
     main()

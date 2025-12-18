@@ -44,18 +44,18 @@ logger = logging.getLogger(__name__)
 # ===== Start logging: save who pressed /start for this bot =====
 BOT_NAME = "ClientPaid"
 
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
+# BOT_START_TABLE_SQL = """
+# CREATE TABLE IF NOT EXISTS bot_starts (
+#     id BIGSERIAL PRIMARY KEY,
+#     telegram_id BIGINT NOT NULL,
+#     username TEXT,
+#     full_name TEXT,
+#     bot_name TEXT NOT NULL,
+#     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     UNIQUE (telegram_id, bot_name)
+# );
+# """
 
 def _tg_username(u):
     username = getattr(u, "username", None)
@@ -71,9 +71,9 @@ def _tg_full_name(u):
     parts = [p for p in [first, last] if p]
     return " ".join(parts) if parts else None
 
-def ensure_bot_starts_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(BOT_START_TABLE_SQL)
+# def ensure_bot_starts_table(conn):
+#     with conn.cursor() as cur:
+#         cur.execute(BOT_START_TABLE_SQL)
 
 def log_bot_start(user):
     """Upsert user into bot_starts (one row per (telegram_id, bot_name))."""
@@ -113,36 +113,6 @@ NOTIFY_USER = False
 def get_conn():
     return psycopg2.connect(**DATABASE_CONFIG)
 
-def create_tables():
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS links_success (
-                id SERIAL PRIMARY KEY,
-                youtube_link TEXT,
-                description TEXT,
-                added_by BIGINT,
-                adder TEXT,
-                submission_date TEXT,
-                channel_id TEXT,
-                subscription_count BIGINT,
-                id_pay VARCHAR(255),
-                telecom_company VARCHAR(255)
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS admin_client_id_chosser (
-                id SERIAL PRIMARY KEY,
-                admin_id BIGINT,
-                id_pay VARCHAR(255),
-                telecom_company VARCHAR(255),
-                action_date TIMESTAMP
-            )
-        """)
-        conn.commit()
-    finally:
-        conn.close()
 
 # ========== ADMIN MENUS ==========
 ADMIN_MAIN_MENU = [
@@ -472,26 +442,27 @@ async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+
+
+
 # ========== APPLICATION SETUP ==========
 def main():
-    create_tables()
-# Ensure bot_starts table exists
-try:
-    _c = get_conn()
-    try:
-        ensure_bot_starts_table(_c)
-        _c.commit()
-    finally:
-        _c.close()
-except Exception as e:
-    logger.error(f"Failed to ensure bot_starts table: {e}")
+
+    # Ensure bot_starts table exists (لا توقف تشغيل البوت حتى لو فشل)
+    # try:
+    #     with get_conn() as conn:
+    #         ensure_bot_starts_table(conn)
+    #         conn.commit()
+    # except Exception as e:
+    #     logger.error(f"Failed to ensure bot_starts table: {e}")
+
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # Admin conversation handler
     admin_conv = ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex(r"^🔍 Process Payment ID$"), process_payment_start),
-            MessageHandler(filters.Regex(r"^📨 Send Message$"), send_message_start)
+            MessageHandler(filters.Regex(r"^📨 Send Message$"), send_message_start),
         ],
         states={
             AWAIT_ID_PAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
@@ -499,30 +470,19 @@ except Exception as e:
             AWAIT_COMPANY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_company)],
             AWAIT_CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_confirmation)],
             AWAIT_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_id)],
-            AWAIT_USER_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message)]
+            AWAIT_USER_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message)],
         },
         fallbacks=[
-            CommandHandler('cancel', cancel_operation),
-            MessageHandler(filters.Regex(r"^Cancel ❌$"), cancel_operation)
-        ]
+            CommandHandler("cancel", cancel_operation),
+            MessageHandler(filters.Regex(r"^Cancel ❌$"), cancel_operation),
+        ],
     )
 
-
-    handlers = [
-        MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler),
-    ]
-
-
-    # Main handlers
-    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(admin_conv)
-    for handler in handlers:
-        application.add_handler(handler)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
 
     application.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
-
-

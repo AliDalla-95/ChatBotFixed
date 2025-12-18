@@ -52,18 +52,18 @@ logger = logging.getLogger(__name__)
 # ===== Start logging: save who pressed /start for this bot =====
 BOT_NAME = "User"
 
-BOT_START_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS bot_starts (
-    id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    bot_name TEXT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, bot_name)
-);
-"""
+# BOT_START_TABLE_SQL = """
+# CREATE TABLE IF NOT EXISTS bot_starts (
+#     id BIGSERIAL PRIMARY KEY,
+#     telegram_id BIGINT NOT NULL,
+#     username TEXT,
+#     full_name TEXT,
+#     bot_name TEXT NOT NULL,
+#     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     UNIQUE (telegram_id, bot_name)
+# );
+# """
 
 def _tg_username(u):
     username = getattr(u, "username", None)
