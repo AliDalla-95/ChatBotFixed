@@ -210,25 +210,62 @@ def get_message_id(telegram_id: int, chat_id: int, link_id: int) -> int:
         logger.error(f"Error getting message ID: {e}")
         return None
 
+# def get_allowed_links(telegram_id: int) -> list:
+#     """Retrieve links available for the user."""
+#     try:
+#         allow_link = 0
+#         with get_db_connection() as conn:
+#             with conn.cursor() as cursor:
+#                 query = """
+#                     SELECT l.id, l.youtube_link, l.description, l.adder, l.channel_id
+#                     FROM links l
+#                     LEFT JOIN user_link_status uls 
+#                         ON l.id = uls.link_id AND uls.telegram_id = %s
+#                     WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s AND COALESCE(l.is_verify, FALSE) = TRUE
+#                     ORDER BY l.id DESC
+#                 """
+#                 cursor.execute(query, (telegram_id, allow_link,))
+#                 return cursor.fetchall()
+#     except Exception as e:
+#         logger.error(f"Error in get_allowed_links: {e}")
+#         return []
+
+
 def get_allowed_links(telegram_id: int) -> list:
-    """Retrieve links available for the user."""
+    """
+    1) Show ONLY ONE task per channel_id (dedupe by channel_id).
+    2) If user finished any task for a channel_id (processed=1), NEVER show any future task with same channel_id.
+    """
     try:
         allow_link = 0
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
                 query = """
-                    SELECT l.id, l.youtube_link, l.description, l.adder, l.channel_id
+                    WITH done_channels AS (
+                        SELECT DISTINCT channel_id
+                        FROM user_link_status
+                        WHERE telegram_id = %s
+                          AND processed = 1
+                          AND channel_id IS NOT NULL
+                    )
+                    SELECT DISTINCT ON (COALESCE(l.channel_id::text, l.id::text))
+                        l.id, l.youtube_link, l.description, l.adder, l.channel_id
                     FROM links l
-                    LEFT JOIN user_link_status uls 
-                        ON l.id = uls.link_id AND uls.telegram_id = %s
-                    WHERE (uls.processed IS NULL OR uls.processed = 0) AND l.allow_link != %s AND COALESCE(l.is_verify, FALSE) = TRUE
-                    ORDER BY l.id DESC
+                    LEFT JOIN done_channels dc
+                        ON dc.channel_id = l.channel_id
+                    WHERE l.allow_link != %s
+                      AND COALESCE(l.is_verify, FALSE) = TRUE
+                      AND dc.channel_id IS NULL
+                    ORDER BY COALESCE(l.channel_id::text, l.id::text), l.id DESC
                 """
-                cursor.execute(query, (telegram_id, allow_link,))
-                return cursor.fetchall()
+                cursor.execute(query, (telegram_id, allow_link))
+                links = cursor.fetchall()
+                return links
     except Exception as e:
-        logger.error(f"Error in get_allowed_links: {e}")
+        logger.error(f"Error fetching allowed links: {e}")
         return []
+
+
 
 async def block_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check and update user block status."""
@@ -290,20 +327,23 @@ async def block_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
 
 def mark_link_processed(telegram_id: int, user_name: str, res_name, link_id: int, res) -> None:
-    """Mark a link as processed for the user."""
     date_mation = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO user_link_status (telegram_id, user_name, channel_name, link_id, channel_id, date_mation, processed)
+                    INSERT INTO user_link_status
+                        (telegram_id, user_name, channel_name, link_id, channel_id, date_mation, processed)
                     VALUES (%s, %s, %s, %s, %s, %s, 1)
-                    ON CONFLICT (telegram_id, link_id, channel_id) 
-                    DO UPDATE SET processed = EXCLUDED.processed
+                    ON CONFLICT (telegram_id, link_id, channel_id)
+                    DO UPDATE SET
+                        processed = 1,
+                        date_mation = EXCLUDED.date_mation
                 """, (telegram_id, user_name, res_name, link_id, res, date_mation))
                 conn.commit()
     except Exception as e:
         logger.error(f"Error in mark_link_processed: {e}")
+
 
 def update_user_points(telegram_id: int, points: int) -> None:
     """Update user's points balance."""
@@ -1428,9 +1468,9 @@ async def handle_unexpected_photo(update: Update, context: ContextTypes.DEFAULT_
     """Photos are no longer required; instruct the user to press Done."""
     user_lang = update.effective_user.language_code or 'en'
     msg = (
-        "📌 لا حاجة لإرسال لقطة شاشة الآن. قم بالمتابعة ثم اضغط زر (✅ أنجزت المهمة) في رسالة المهمة."
+        "📌 ممنوع إرسال صورة أو ملف. قم بالمتابعة ثم اضغط زر (✅ أنجزت المهمة) في رسالة المهمة."
         if user_lang.startswith('ar')
-        else "📌 No screenshot is required. Follow, then press (✅ Done) in the task message."
+        else "📌 No screenshot or files. Follow, then press (✅ Done) in the task message."
     )
     await update.message.reply_text(msg)
 

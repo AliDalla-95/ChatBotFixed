@@ -164,8 +164,7 @@ def generate_instagram_channel_id(username: str) -> str:
 
 # ========== CONFIGURATION ==========admin
 TELEGRAM_TOKEN = config.CLIENT_BOT_TOKEN
-ADMIN_TELEGRAM_ID = "6106281772"  # Get this from @userinfobot
-DATABASE_NAME = "Test.db"
+
 
 # Configure logging
 logging.basicConfig(
@@ -240,17 +239,19 @@ def log_bot_start(user):
 
 # ========== UPDATED STATES ==========
 (
-    EMAIL, 
-    CODE_VERIFICATION,  # New state
-    PHONE, 
-    FULLNAME, 
-    COUNTRY, 
+    EMAIL,
+    CODE_VERIFICATION,
+    PHONE,
+    FULLNAME,
+    COUNTRY,
     CHANNEL_URL,
     SUBSCRIPTION_CHOICE,
-    COMPANY_CHOICE,
-    AWAIT_PAYMENT_ID,
-    SUPPORT_MESSAGE
-) = range(10)  # Changed from range(8)
+    COMPANY_CHOICE,          # الآن: اختيار شركة الدفع أولاً
+    AWAIT_payment_ID,        # ثم: إدخال رقم الدفع
+    SUPPORT_MESSAGE,
+    CONFIRM_payment_UPDATE   # جديد: تأكيد قبل التحديث
+) = range(11)
+
 
 # ========== MENU SYSTEM ==========
 # ========== UPDATED MENU SYSTEM ==========
@@ -307,21 +308,12 @@ ADMIN_MENU = [
 ]
 
 
-# Database configuration
-POSTGRES_CONFIG = {
-    "user": "postgres",
-    "password": "postgres",
-    "host": "localhost",
-    "port": "5432",
-    "database": "Test"
-}
+DB_DSN = getattr(config, "DATABASE_URL", None) or getattr(config, "DATABASE_CONFIG", None)
+if not DB_DSN:
+    raise RuntimeError("DATABASE_URL / DATABASE_CONFIG is not set in config.py")
 
-# Create connection pool
-connection_pool = psycopg2.pool.SimpleConnectionPool(
-    minconn=1,
-    maxconn=1000,
-    **POSTGRES_CONFIG
-)
+connection_pool = psycopg2.pool.SimpleConnectionPool(1, 1000, DB_DSN)
+
 
 
 
@@ -346,11 +338,53 @@ async def is_admins(admins_id: int) -> bool:
 
 
 
+class PooledConn:
+    """Small wrapper so conn.close() returns connection back to the pool (instead of closing it)."""
+    def __init__(self, pool: psycopg2.pool.AbstractConnectionPool):
+        self._pool = pool
+        self._conn = pool.getconn()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        # Return to pool safely (rollback to avoid leaking open transactions)
+        try:
+            if self._conn and getattr(self._conn, "closed", 1) == 0:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    pass
+        finally:
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+            self._conn = None
+
+
 def get_conn():
-    return connection_pool.getconn()
+    return PooledConn(connection_pool)
 
 def put_conn(conn):
-    connection_pool.putconn(conn)
+    if conn is None:
+        return
+    # If it's our wrapper -> close() returns to pool
+    if isinstance(conn, PooledConn):
+        conn.close()
+        return
+    # Otherwise it's a raw psycopg2 connection
+    try:
+        connection_pool.putconn(conn)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 def generate_confirmation_code() -> str:
     return ''.join(random.choices('0123456789', k=6))
@@ -360,12 +394,12 @@ def send_confirmation_email(email: str, code: str) -> bool:
         msg = EmailMessage()
         msg.set_content(f"Your confirmation code is: {code}")
         msg['Subject'] = "Confirmation Code"
-        msg['From'] = "ironm2249@gmail.com"  # Use your email
+        msg['From'] = getattr(config, 'EMAIL_FROM', config.SMTP_USERNAME)
         msg['To'] = email
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as server:
             server.starttls()
-            server.login("ironm2249@gmail.com", "bevu ggwh ohmp eihh ")  # Use app password
+            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
             server.send_message(msg)
             return True
     except Exception as e:
@@ -479,23 +513,20 @@ async def handle_skip_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def get_menu2(user_lang: str, user_id: int) -> ReplyKeyboardMarkup:
-    """Return appropriate menu based on user status"""
     if await is_admins(user_id):
         return ReplyKeyboardMarkup(ADMIN_MENU, resize_keyboard=True)
-    if user_lang == 'ar':
+    if (user_lang or "").startswith("ar"):
         return ReplyKeyboardMarkup(MAIN_MENU_OPTIONS_ar, resize_keyboard=True)
-    else:
-        return ReplyKeyboardMarkup(MAIN_MENU_OPTIONS, resize_keyboard=True)
+    return ReplyKeyboardMarkup(MAIN_MENU_OPTIONS, resize_keyboard=True)
 
 
 async def get_menu(user_lang: str, user_id: int) -> ReplyKeyboardMarkup:
-    """Return appropriate menu based on user status"""
     if await is_admins(user_id):
         return ReplyKeyboardMarkup(ADMIN_MENU, resize_keyboard=True)
-    if user_lang == 'ar':
+    if (user_lang or "").startswith("ar"):
         return ReplyKeyboardMarkup(MAIN_MENU_WITH_SUPPORT_ar, resize_keyboard=True)
-    else:
-        return ReplyKeyboardMarkup(MAIN_MENU_WITH_SUPPORT, resize_keyboard=True)
+    return ReplyKeyboardMarkup(MAIN_MENU_WITH_SUPPORT, resize_keyboard=True)
+
 
 
 
@@ -630,10 +661,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await handle_unknown_command(update, user_lang)
 
 async def handle_unknown_command(update: Update, user_lang: str):
-    """Handle unrecognized commands"""
-    error_msg = "أمر غير معروف. يرجى استخدام أزرار القائمة ❌" if user_lang.startswith('ar') else "❌ Unknown command. Please use menu buttons"
-    await update.message.reply_text(error_msg)
-    # await show_appropriate_menu(update, user_lang)
+    """Send user back to the main menu directly (no error message)."""
+    user = update.effective_user
+
+    menu_text = "🏠 القائمة الرئيسية:" if (user_lang or "").startswith("ar") else "🏠 Main Menu:"
+    reply_markup = await get_menu(user_lang, user.id)  # نفس قائمتك الديناميكية (Admin/عادي + عربي/إنجليزي)
+
+    await update.message.reply_text(menu_text, reply_markup=reply_markup)
+
 
 # async def show_appropriate_menu(update: Update, user_lang: str):
 #     """Show correct menu based on current state"""
@@ -700,12 +735,15 @@ async def help_us(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def show_main_menu(update: Update, user):
-    """Display the appropriate main menu"""
+    """Display the appropriate main menu (works for messages + callback queries)"""
     user_lang = update.effective_user.language_code or 'en'
-    await update.message.reply_text(
-        "Main Menu:",
-        reply_markup=await get_menu(user_lang,user.id)
-    )
+    msg = update.effective_message
+    if msg:
+        await msg.reply_text(
+            "Main Menu:",
+            reply_markup=await get_menu(user_lang, user.id)
+        )
+
 
 async def handle_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start registration process"""
@@ -1171,7 +1209,7 @@ async def list_Pages(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for channel in Pages:
             id, description, youtube_link, channel_id, submission_date, id_pay = channel
             
-            # English format: ID | Short Description | Payment
+            # English format: ID | Short Description | payment
             # if user_lang != 'ar':
             #     button_text = f"🆔{id} |{description}| 💳{id_pay or '?'}"
             # # Arabic format: رقم | وصف مختصر | الدفع
@@ -1506,19 +1544,31 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ========== IMPROVED ERROR HANDLING ==========
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle PostgreSQL errors"""
-    user_lang = update.effective_user.language_code or 'en'
     logger.error("Exception:", exc_info=context.error)
-    
+
+    user_lang = "en"
+    if update and update.effective_user:
+        user_lang = update.effective_user.language_code or "en"
+
     if isinstance(context.error, errors.UniqueViolation):
-        msg = " خطأ في الإدخال ❌" if user_lang.startswith('ar') else "❌ This entry already exists!"
-        await update.message.reply_text(msg)
+        msg_text = " خطأ في الإدخال ❌" if (user_lang or "").startswith('ar') else "❌ This entry already exists!"
     elif isinstance(context.error, errors.ForeignKeyViolation):
-        msg = " مصدر غير معروف ❌" if user_lang.startswith('ar') else "❌ Invalid reference!"
-        await update.message.reply_text(msg)
+        msg_text = " مصدر غير معروف ❌" if (user_lang or "").startswith('ar') else "❌ Invalid reference!"
     else:
-        msg = " أمر غير معروف يرجى إعادة المحاولة ⚠️" if user_lang.startswith('ar') else "⚠️ An error occurred. Please try again."
-        await update.message.reply_text(msg,reply_markup=await get_menu(user_lang,update.effective_user.id))
+        msg_text = " أمر غير معروف يرجى إعادة المحاولة ⚠️" if (user_lang or "").startswith('ar') else "⚠️ An error occurred. Please try again."
+
+    msg = update.effective_message if update else None
+    if msg:
+        try:
+            uid = update.effective_user.id if (update and update.effective_user) else 0
+            await msg.reply_text(msg_text, reply_markup=await get_menu(user_lang, uid) if uid else None)
+        except Exception:
+            # last-resort
+            try:
+                await msg.reply_text(msg_text)
+            except Exception:
+                pass
+
         
 # ========== ADMIN DELETE Pages ==========
 async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2126,7 +2176,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
     # context.user_data['subscription_count'] = subscription_count
     # context.user_data['price'] = price
 
-    # # Define telecom companies
+    # # Define payment companies
     # companies = ["Vodafone Egypt", "Syriatel", "Mtn", "Alfa", "Touch", 
     #              "Etisalat Misr", "Orange Egypt", "Telecom Egypt", 
     #              "Zain Jordan", "Orange Jordan", "Umniah"]
@@ -2139,7 +2189,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
     # reply_markup = ReplyKeyboardMarkup(company_buttons, resize_keyboard=True)
 
     # # Prompt user to select company
-    # prompt_msg = "Please select your telecom company:" if user_lang != 'ar' else "الرجاء اختيار شركة الاتصالات:"
+    # prompt_msg = "Please select your payment company:" if user_lang != 'ar' else "الرجاء اختيار شركة الدفع:"
     # await update.message.reply_text(prompt_msg, reply_markup=reply_markup)
 
 
@@ -2158,7 +2208,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
         c.execute("SELECT fullname FROM clients WHERE telegram_id = %s", (user.id,))
         ex = c.fetchone()[0]
 
-        # Insert into database with telecom company
+        # Insert into database with payment company
         c.execute("""
             INSERT INTO links_success 
             (added_by, youtube_link, description, channel_id, submission_date, adder, subscription_count, price)
@@ -2183,7 +2233,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
             f"🔗 URL: {channel_data.get('url')}\n"
             f"❤️ Requested followers: {subscription_count}\n"
             f"Important note: If the link is incorrect or fake, it will be automatically deleted even if payment has been made, as this violates company policy. You must carefully check the link, delete it if it is incorrect, and re-enter the correct link before making a payment. Thank you.\n"
-            # f"🏢 Telecom Company: N/A"
+            # f"🏢 payment Company: N/A"
         ) if user_lang != 'ar' else (
             f"✅ تمت عملية إضافة صفحة الانستغرام بنجاح تام\n\n"
             f"📛 أسم الحساب: {channel_data.get('channel_name')}\n"
@@ -2191,7 +2241,7 @@ async def handle_subscription_choice(update: Update, context: ContextTypes.DEFAU
             f"🔗 رابط الحساب: {channel_data.get('url')}\n"
             f"❤️ المتابعين المطلوبين: {subscription_count}\n"
             f"ملاحظة هامة: في حال كان الرابط غير صحيح أو مزيفاً، سيتم حذفه تلقائياً حتى بعد إتمام عملية الدفع، وذلك لمخالفته سياسة الشركة. لذا، يُرجى التحقق من الرابط جيداً، وحذفه إن كان غير صحيح، ثم إدخال الرابط الصحيح قبل إتمام عملية الدفع. شكراً لكم.\n"
-            # f"🏢 شركة الاتصالات: لم يتم تحديد شركة اتصالات للدفع"
+            # f"🏢 شركة الدفع: لم يتم تحديد شركة للدفع"
         )
 
         await update.message.reply_text(
@@ -2218,173 +2268,235 @@ async def company_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_lang = user.language_code or 'en'
     text = update.message.text.strip()
 
-    # Handle cancellation
+    # Cancel
     if text in ["Cancel ❌", "إلغاء ❌"]:
-        cancel_msg = "🚫 Operation cancelled" if user_lang != 'ar' else "🚫 تم الإلغاء"
+        cancel_msg = "🚫 تم الإلغاء" if user_lang.startswith('ar') else "🚫 Operation cancelled"
         await update.message.reply_text(cancel_msg, reply_markup=await get_menu2(user_lang, user.id))
         return ConversationHandler.END
 
-    # Validate telecom company
-    allowed_companies = ["Vodafone Egypt", "Syriatel", "Mtn", "Alfa", "Touch", 
-                         "Etisalat Misr", "Orange Egypt", "Telecom Egypt", 
-                         "Zain Jordan", "Orange Jordan", "Umniah"]
+    allowed_companies = fetch_companies()
+    if not allowed_companies:
+        await update.message.reply_text("❌ لا توجد شركات مضافة في قاعدة البيانات.")
+        return ConversationHandler.END
+
     if text not in allowed_companies:
-        error_msg = "❌ Invalid company selected. Please choose from the list." if user_lang != 'ar' else "❌ شركة غير صالحة. يرجى الاختيار من القائمة."
-        await update.message.reply_text(error_msg)
+        await update.message.reply_text("❌ شركة غير صالحة. اختر من القائمة.")
         return COMPANY_CHOICE
 
 
+    # خزّن الشركة المختارة
+    context.user_data["payment_company"] = text
+
+    cancel_btn = "إلغاء ❌" if user_lang.startswith('ar') else "Cancel ❌"
+    msg = "الآن أدخل رقم عملية الدفع:" if user_lang.startswith('ar') else "Now enter the payment ID:"
+
+    await update.message.reply_text(
+        msg,
+        reply_markup=ReplyKeyboardMarkup([[cancel_btn]], resize_keyboard=True)
+    )
+    return AWAIT_payment_ID
 
 
 
-    # Retrieve data from context
-    payment_id = context.user_data.get('payment_id')
-    channel_id_db = context.user_data.get('channel_id_db')
-    telecom_company = text
+async def handle_payment_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    user_lang = user.language_code or 'en'
+    payment_id = update.message.text.strip()
 
+    if payment_id in ["Cancel ❌", "إلغاء ❌"]:
+        msg = "🚫 تم الإلغاء" if user_lang.startswith('ar') else "🚫 Cancelled"
+        await update.message.reply_text(msg, reply_markup=await get_menu2(user_lang, user.id))
+        return ConversationHandler.END
+
+    selected_channel = context.user_data.get("selected_channel")
+    payment_company = context.user_data.get("payment_company")
+
+    if not selected_channel or not payment_company:
+        await update.message.reply_text("❌ حدث خطأ: لم يتم اختيار قناة/شركة.", reply_markup=await get_menu2(user_lang, user.id))
+        return ConversationHandler.END
+
+    if not payment_id.isdigit():
+        error_msg = "❌ رقم الدفع يجب أن يكون أرقام فقط!" if user_lang.startswith('ar') else "❌ payment ID must be digits only!"
+        await update.message.reply_text(error_msg)
+        return AWAIT_payment_ID
+
+    # خزّن رقم الدفع
+    context.user_data["payment_id"] = payment_id
+
+    # رسالة تأكيد + أزرار
+    confirm_text = (
+        f"✅ تأكيد التحديث:\n"
+        f"🏢 شركة الدفع: {payment_company}\n"
+        f"🆔 رقم الدفع: {payment_id}\n\n"
+        f"هل تريد التأكيد؟"
+        if user_lang.startswith('ar')
+        else
+        f"✅ Confirm update:\n"
+        f"🏢 payment: {payment_company}\n"
+        f"🆔 payment ID: {payment_id}\n\n"
+        f"Do you want to confirm?"
+    )
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Confirm", callback_data="pay_confirm"),
+        InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel"),
+    ]])
+
+    await update.message.reply_text(confirm_text, reply_markup=kb)
+    return CONFIRM_payment_UPDATE
+
+
+
+
+async def confirm_payment_update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    user_lang = user.language_code or 'en'
+
+    # امنع ضغطتين: احذف أزرار التأكيد فورًا
+    try:
+        if query.message:
+            await query.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if query.data == "pay_cancel":
+        msg = "تم الإلغاء ❌" if (user_lang or "").startswith('ar') else "Cancelled ❌"
+        await query.message.reply_text(msg, reply_markup=await get_menu2(user_lang, user.id))
+        return ConversationHandler.END
+
+    selected_channel = context.user_data.get("selected_channel")
+    payment_company = context.user_data.get("payment_company")
+    payment_id = context.user_data.get("payment_id")
+
+    if not selected_channel or not payment_company or not payment_id:
+        await query.message.reply_text("❌ Missing data. Please retry.", reply_markup=await get_menu2(user_lang, user.id))
+        return ConversationHandler.END
+
+    conn = None
     try:
         conn = get_conn()
         c = conn.cursor()
         c.execute("""
-            UPDATE links_success 
-            SET id_pay = %s, telecom_company = %s 
+            UPDATE links_success
+            SET id_pay = %s, payment_company = %s
             WHERE id = %s AND added_by = %s
-        """, (payment_id, telecom_company, channel_id_db, user.id))
-        
+        """, (payment_id, payment_company, selected_channel, user.id))
         conn.commit()
-        
-        success_msg = (f"✅ Payment ID updated successfully!\n"
-                       f"🆔 New Payment ID: {payment_id}\n"
-                       f"🏢 telecom_company: {telecom_company}") if user_lang != 'ar' \
-                    else (f"✅ تم تحديث رقم الدفع بنجاح!\n"
-                          f"🆔 رقم الدفع الجديد: {payment_id}\n"
-                          f"🏢 شركة الاتصالات: {telecom_company}")
-        await update.message.reply_text(success_msg, reply_markup=await get_menu2(user_lang, update.effective_user.id))
+
+        ok = "✅ تم التحديث بنجاح" if (user_lang or "").startswith('ar') else "✅ Updated successfully"
+        await query.message.reply_text(ok, reply_markup=await get_menu2(user_lang, user.id))
 
     except Exception as e:
-        logger.error(f"Database error: {str(e)}")
-        error_msg = "❌ Error saving data." if user_lang != 'ar' else "❌ حدث خطأ أثناء حفظ البيانات."
-        await update.message.reply_text(error_msg)
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+        logger.error(f"Confirm update error: {e}")
+        await query.message.reply_text("⚠️ DB error أثناء التحديث", reply_markup=await get_menu2(user_lang, user.id))
+
     finally:
-        conn.close()
+        try:
+            if conn:
+                put_conn(conn)
+        except Exception:
+            pass
 
     return ConversationHandler.END
 
 
-async def handle_payment_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Update payment ID in database"""
-    user = update.effective_user
-    user_lang = user.language_code or 'en'
-    payment_id = update.message.text.strip()
-    channel_id_db = context.user_data.get("selected_channel")
-    # Handle cancellation
-    if payment_id in ["Cancel ❌", "إلغاء ❌"]:
-        msg = "🚫 Payment ID update cancelled" if user_lang != 'ar' else "🚫 تم إلغاء تحديث رقم الدفع"
-        await update.message.reply_text(msg, reply_markup=await get_menu2(user_lang, update.effective_user.id))
-        return ConversationHandler.END
-    
-    if not channel_id_db:
-        error_msg = "❌ Page not selected" if user_lang != 'ar' else "❌ لم يتم اختيار قناة"
-        await update.message.reply_text(error_msg)
-        return ConversationHandler.END
-    # Validate numeric input
-    if not payment_id.isdigit():
-        error_msg = (
-            "❌ Payment ID must contain only numbers!\n"
-            "Please enter numeric values only:"
-            if user_lang != 'ar' else 
-            "❌ يجب أن يحتوي رقم الدفع على أرقام فقط!\n"
-            "الرجاء إدخال قيم رقمية فقط:"
-        )
-        await update.message.reply_text(error_msg)
-        return AWAIT_PAYMENT_ID  # Stay in same state to retry
+
+def fetch_companies(conn=None):
+    close_after = False
+    if conn is None:
+        conn = get_conn()
+        close_after = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT name
+                FROM companies
+                WHERE is_active = TRUE
+                ORDER BY name
+            """)
+            return [r[0] for r in cur.fetchall()]
+    finally:
+        if close_after:
+            put_conn(conn)
 
 
 
-    # Define telecom companies
-    companies = ["Vodafone Egypt", "Syriatel", "Mtn", "Alfa", "Touch", 
-                 "Etisalat Misr", "Orange Egypt", "Telecom Egypt", 
-                 "Zain Jordan", "Orange Jordan", "Umniah"]
-
-    # Prepare company selection keyboard
-    company_buttons = [[company] for company in companies]
-    cancel_btn = ["Cancel ❌"] if user_lang != 'ar' else ["إلغاء ❌"]
-    company_buttons.append(cancel_btn)
-
-    reply_markup = ReplyKeyboardMarkup(company_buttons, resize_keyboard=True)
-
-    # Prompt user to select company
-    prompt_msg = "Please select the telecom company you paid with:" if user_lang != 'ar' else "الرجاء اختيار شركة الاتصالات التي قمت بالدفع عن طريقها:"
-    await update.message.reply_text(prompt_msg, reply_markup=reply_markup)
-
-
-
-    context.user_data["payment_id"] = payment_id
-    context.user_data["channel_id_db"] = channel_id_db 
-    
-    return COMPANY_CHOICE
 
 # ========== NEW HANDLERS ==========
 async def channel_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle channel selection with message replacement"""
     query = update.callback_query
     await query.answer()
-    
+
+    conn = None
     try:
-        # Get channel details before deleting message
         channel_id = query.data.split("_")[1]
+
         conn = get_conn()
         c = conn.cursor()
         c.execute("""
             SELECT description
-            FROM links_success 
+            FROM links_success
             WHERE id = %s
         """, (channel_id,))
-        channel_data = c.fetchone()
-        
-        if not channel_data:
+        row = c.fetchone()
+
+        if not row:
             await query.message.reply_text("❌ Page not found")
             return ConversationHandler.END
-            
-        description = channel_data
-        
 
-        
-        # Build new message with preserved information
+        description = row[0]  # ✅ fix
+
+        # خزّن القناة المختارة
+        context.user_data["selected_channel"] = channel_id
+
         user_lang = query.from_user.language_code or 'en'
         cancel_btn = "إلغاء ❌" if user_lang.startswith('ar') else "Cancel ❌"
-        
-        message_text = (
-            # f"📋 Channel Details:\n"
-            f"📛 Page Name: {escape_markdown(description)}\n\n"
-            f"Please enter payment ID or Press Cancel ❌ For Abort:"
-            if user_lang != 'ar' else 
-            # f"📋 تفاصيل القناة:\n"
-            f"📛 أسم الحساب: {escape_markdown(description)}\n\n"
-            f"الرجاء إدخال رقم عملية الدفع أو اضغط إلغاء ❌ لإلغاء العملية:"
+
+        # شركات الدفع
+        companies = fetch_companies()
+        company_buttons = [[c] for c in companies]
+        company_buttons.append([cancel_btn])
+
+        msg = (
+            f"📛 أسم الحساب: {escape_markdown(str(description))}\n\n"
+            f"اختر شركة الدفع أولاً:"
+            if user_lang.startswith('ar')
+            else
+            f"📛 Page Name: {escape_markdown(str(description))}\n\n"
+            f"Please choose the payment company first:"
         )
-        
-        # Store channel ID in context for payment handling
-        context.user_data["selected_channel"] = channel_id
-        
-        # Send new formatted message
+
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=message_text,
+            text=msg,
             parse_mode="MarkdownV2",
-            reply_markup=ReplyKeyboardMarkup([[cancel_btn]], resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(company_buttons, resize_keyboard=True)
         )
-        # Delete original message with inline keyboard
+
         await query.message.delete()
+
+        return COMPANY_CHOICE
+
     except Exception as e:
         logger.error(f"Page button error: {str(e)}")
         await query.message.reply_text("❌ Error processing request")
         return ConversationHandler.END
-        
+
     finally:
-        conn.close()
-        
-    return AWAIT_PAYMENT_ID
+        if conn:
+            try:
+                put_conn(conn)  # الأفضل مع pool
+            except Exception:
+                pass
+
 
 
 
@@ -2646,17 +2758,14 @@ def main() -> None:
                 "AWAIT_ADDER": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_admin)],
                 CHANNEL_URL: [
                     # 1) لو ضغط زر إلغاء / قائمة / أي زر من القائمة، اخرج من الحالة
-                    MessageHandler(
-                        filters.Regex(r"^(Main Menu)$"),
-                        route_back_to_menu
-                    ),
-
+                    MessageHandler(filters.Regex(r"^(Main Menu|القائمة الرئيسية)$"), route_back_to_menu),
                     # 2) غير ذلك: اعتبره رابط وحاول معالجته
                     MessageHandler(filters.TEXT & ~filters.COMMAND, process_channel_url),
                 ],
-                AWAIT_PAYMENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
+                AWAIT_payment_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
                 SUBSCRIPTION_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_subscription_choice)],
                 COMPANY_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, company_handler)],
+                CONFIRM_payment_UPDATE: [CallbackQueryHandler(confirm_payment_update_handler, pattern=r"^(pay_confirm|pay_cancel)$")],
             },
             fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)],
             per_message=False,
@@ -2704,9 +2813,11 @@ def main() -> None:
                 ],
                 "AWAIT_CHANNEL_URL": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete)],
                 "AWAIT_CHANNEL_URL_ACCEPT": [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_accept)],
-                AWAIT_PAYMENT_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
+                AWAIT_payment_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_id)],
                 SUBSCRIPTION_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_subscription_choice)],
                 COMPANY_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, company_handler)],
+                CONFIRM_payment_UPDATE: [CallbackQueryHandler(confirm_payment_update_handler, pattern=r"^(pay_confirm|pay_cancel)$")],
+
             },
             fallbacks=[
                 CommandHandler('cancel', cancel_registration),
@@ -2766,40 +2877,53 @@ def main() -> None:
                 conn.close()
 
         def wrap_handler(handler):
-            """Safe handler wrapper with ban checking"""
+            """Safe handler wrapper with ban checking (works for messages + callback queries)."""
             if not hasattr(handler, 'callback'):
                 return handler
-                
+
             original_callback = handler.callback
+
             async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
-                    # Allow /start command and Start button even if banned
+                    # Allow /start and Start even if banned
                     if update.message and update.message.text:
                         text = update.message.text.strip()
                         if text in ("/start", "Start"):
                             return await original_callback(update, context)
-                    
-                    # Check ban status for all other interactions
+
                     user = update.effective_user
-                    # user_lang = update.effective_user.language_code or 'en'
-                    if await is_banned(user.id):
-                        # msg = "🚫 تم إلغاء وصولك " if user_lang.startswith('ar') else "🚫 Your access has been revoked"
-                        await update.message.reply_text("🚫 Your access has been revoked")
+                    if user and await is_banned(user.id):
+                        # stop spinner if callback
+                        if update.callback_query:
+                            try:
+                                await update.callback_query.answer()
+                            except Exception:
+                                pass
+
+                        msg = update.effective_message
+                        if msg:
+                            await msg.reply_text("🚫 Your access has been revoked")
                         return ConversationHandler.END
-                        
+
                     return await original_callback(update, context)
+
                 except Exception as e:
                     logger.error(f"Handler error: {str(e)}")
-                    await show_main_menu(update, user)
+
+                    msg = update.effective_message if update else None
+                    if msg and update and update.effective_user:
+                        ul = update.effective_user.language_code or "en"
+                        await msg.reply_text("⚠️ حدث خطأ. الرجاء إعادة المحاولة.", reply_markup=await get_menu(ul, update.effective_user.id))
                     return ConversationHandler.END
 
             handler.callback = wrapped
             return handler
 
+
         # Apply ban checks to all handlers
         wrapped_handlers = [wrap_handler(h) for h in handlers]
         application.add_handlers(wrapped_handlers)
-        application.add_handler(CallbackQueryHandler(channel_button_handler, pattern=r"^channel_"))
+        # application.add_handler(CallbackQueryHandler(channel_button_handler, pattern=r"^channel_"))
         # ========== ERROR HANDLING ==========
         application.add_error_handler(error_handler)
 
@@ -2849,7 +2973,7 @@ def main() -> None:
             logger.error(f"Cleanup failed: {str(e)}")
 
         # Ensure database connections are closed
-        sqlite3.connect(DATABASE_NAME).close()
+        # sqlite3.connect(DATABASE_NAME).close()
 
 if __name__ == "__main__":
     # #region agent log

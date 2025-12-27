@@ -15,7 +15,6 @@ from datetime import datetime
 
 # ========== CONFIGURATION ==========
 TELEGRAM_TOKEN = config.CLIENT_PAID_BOT_TOKEN
-ADMIN_IDS = ["6936321897", "1130152311", "6106281772", "1021796797", "2050036668", "1322069113"]  # Add your admin IDs
 DATABASE_CONFIG = {
     "host": "localhost",
     "database": "Test",
@@ -110,8 +109,13 @@ NOTIFY_USER = False
 
 
 # ========== DATABASE HELPERS ==========
+DATABASE_DSN = getattr(config, "DATABASE_URL", None) or getattr(config, "DATABASE_CONFIG", None)
+if not DATABASE_DSN:
+    raise RuntimeError("DATABASE_URL / DATABASE_CONFIG is not set in config.py")
+
 def get_conn():
-    return psycopg2.connect(**DATABASE_CONFIG)
+    return psycopg2.connect(DATABASE_DSN)
+
 
 
 # ========== ADMIN MENUS ==========
@@ -219,7 +223,7 @@ async def handle_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT DISTINCT telecom_company FROM links_success
+                        SELECT DISTINCT payment_company FROM links_success
                         WHERE id_pay = %s
                     """, (context.user_data['id_pay'],))
                     companies = [row[0] for row in cur.fetchall()]
@@ -232,7 +236,7 @@ async def handle_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     keyboard.append(["Cancel ❌"])
                     
                     await update.message.reply_text(
-                        "🏢 Select telecom company:",
+                        "🏢 Select payment company:",
                         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                     )
                     if price == price_find:
@@ -263,7 +267,7 @@ async def handle_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur = conn.cursor()
         cur.execute("""
             SELECT * FROM links_success
-            WHERE id_pay = %s AND telecom_company = %s
+            WHERE id_pay = %s AND payment_company = %s
         """, (context.user_data['id_pay'], company))
         # Get column names from cursor description
         columns = [desc[0] for desc in cur.description]
@@ -280,7 +284,7 @@ async def handle_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"Confirm processing:\n\n"
             f"Payment ID: {record_dict['id_pay']}\n"
-            f"Company: {record_dict['telecom_company']}\n"
+            f"Company: {record_dict['payment_company']}\n"
             f"Channel: {record_dict['description']}\n",
             reply_markup=ReplyKeyboardMarkup([["✅ Confirm", "Cancel ❌"]], resize_keyboard=True)
         )
@@ -316,12 +320,12 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Insert to admin log with price
             cur.execute("""
                 INSERT INTO admin_client_id_chosser
-                (admin_id, id_pay, telecom_company, price, action_date)
+                (admin_id, id_pay, payment_company, price, action_date)
                 VALUES (%s, %s, %s, %s, %s)
             """, (
                 admin_id,
                 record['id_pay'], # id_pay
-                record['telecom_company'], # telecom_company
+                record['payment_company'], # payment_company
                 context.user_data['price'],
                 datetime.now()
             ))
@@ -340,7 +344,7 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                         text=f"✅ Payment processed!\n"
                             f"📋 Details:\n"
                             f"ID: {record['id_pay']}\n"
-                            f"Company: {record['telecom_company']}\n"
+                            f"Company: {record['payment_company']}\n"
                             f"Channel: {record['description']}\n"
                             f"Required: {record['subscription_count']}\n"
                             f"Price: {context.user_data['price']}"
@@ -428,10 +432,18 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     elif text == "🔙 Main Menu":  # New handler
         await start(update, context)
     else:
-        msg = "❌ Unknown command. Please use the menu buttons."
-        await update.message.reply_text(msg)
-        await start(update,context)
+        # ✅ بدل "Unknown command" رجّع لقائمة الأدمن مباشرة
+        if await is_admins(user.id):
+            await update.message.reply_text("👑 Admin Panel", reply_markup=get_admin_menu())
+        else:
+            await update.message.reply_text("Welcome to the bot!")
 
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if await is_admins(user.id):
+        await update.effective_message.reply_text("👑 Admin Panel", reply_markup=get_admin_menu())
+    else:
+        await update.effective_message.reply_text("Welcome to the bot!")
 
 
 async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -480,7 +492,9 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(admin_conv)
+    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
+
 
     application.run_polling()
 

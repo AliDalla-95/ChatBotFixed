@@ -33,6 +33,7 @@ BOT_NAME = "Support"
 #     UNIQUE (telegram_id, bot_name)
 # );
 # """
+VERIFY_DELAY_DAYS = 3
 
 def _tg_username(u):
     username = getattr(u, "username", None)
@@ -158,10 +159,11 @@ async def get_pending_requests(page: int = 0, limit: int = REQUESTS_PAGE_SIZE):
                     facebook_username, instagram_username
                 FROM requests
                 WHERE locked = FALSE
+                  AND date <= NOW() - (%s * INTERVAL '1 day')
                 ORDER BY date ASC
                 LIMIT %s OFFSET %s
                 """,
-                (limit, page * limit),
+                (VERIFY_DELAY_DAYS, limit, page * limit),
             )
             cols = [desc[0] for desc in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -170,14 +172,24 @@ async def get_pending_requests(page: int = 0, limit: int = REQUESTS_PAGE_SIZE):
 
 
 
+
 async def get_pending_requests_count() -> int:
     conn = db_pool.getconn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM requests WHERE locked = FALSE")
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM requests
+                WHERE locked = FALSE
+                  AND date <= NOW() - (%s * INTERVAL '1 day')
+                """,
+                (VERIFY_DELAY_DAYS,),
+            )
             return int(cur.fetchone()[0])
     finally:
         db_pool.putconn(conn)
+
 
 
 async def handle_show_requests(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):

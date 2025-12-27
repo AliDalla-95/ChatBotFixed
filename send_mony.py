@@ -94,7 +94,6 @@ def log_bot_start(user):
 # Configuration
 BOT_TOKEN = config.SEND_MONEY_BOT_TOKEN
 DB_URL = config.DATABASE_URL
-ADMIN_IDS = [6936321897, 1130152311, 6106281772, 1021796797, 2050036668, 1322069113]
 PER_PAGE = 5
 
 # Conversation states
